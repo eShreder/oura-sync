@@ -62,10 +62,10 @@ oura-sync/
 ## Implementation Steps
 
 ### Task 1: Инициализация Go модуля и зависимости
-- [ ] создать директорию `oura-sync/` и выполнить `go mod init github.com/user/oura-sync`
-- [ ] добавить зависимость `modernc.org/sqlite` через `go get`
-- [ ] создать `cmd/oura-sync/main.go` с минимальным `func main()` (парсинг флагов: `--db`, `--days`, env `OURA_TOKEN`)
-- [ ] убедиться что `go build ./...` проходит без ошибок
+- [x] создать директорию `oura-sync/` и выполнить `go mod init github.com/user/oura-sync`
+- [x] добавить зависимость `modernc.org/sqlite` через `go get`
+- [x] создать `cmd/oura-sync/main.go` с минимальным `func main()` (парсинг флагов: `--db`, `--days`, env `OURA_TOKEN`)
+- [x] убедиться что `go build ./...` проходит без ошибок
 
 ### Task 2: HTTP клиент для Oura API
 - [ ] создать `internal/api/client.go`: struct `Client` с полями `httpClient`, `token`, `baseURL`
