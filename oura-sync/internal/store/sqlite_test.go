@@ -353,6 +353,31 @@ func TestSetLastSync_MultipleEndpoints(t *testing.T) {
 	}
 }
 
+func TestUpsertRecords_InvalidJSON(t *testing.T) {
+	s := newTestStore(t)
+
+	// Completely invalid JSON should error.
+	records := []json.RawMessage{
+		json.RawMessage(`not valid json`),
+	}
+	err := s.UpsertRecords("daily_activity", records)
+	if err == nil {
+		t.Fatal("expected error for invalid JSON, got nil")
+	}
+}
+
+func TestUpsertRecords_Heartrate_InvalidJSON(t *testing.T) {
+	s := newTestStore(t)
+
+	records := []json.RawMessage{
+		json.RawMessage(`{invalid`),
+	}
+	err := s.UpsertRecords("heartrate", records)
+	if err == nil {
+		t.Fatal("expected error for invalid heartrate JSON, got nil")
+	}
+}
+
 func TestUpsertRecords_MultipleEndpoints(t *testing.T) {
 	s := newTestStore(t)
 

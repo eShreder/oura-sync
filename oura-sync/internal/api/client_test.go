@@ -305,3 +305,39 @@ func TestFetch_PreservesQueryParams(t *testing.T) {
 		t.Fatalf("expected 1 record, got %d", len(data))
 	}
 }
+
+func TestFetch_InvalidJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`not valid json at all`))
+	}))
+	defer srv.Close()
+
+	c := NewClient("token", srv.URL)
+	_, err := c.Fetch(context.Background(), "/v2/test", nil)
+	if err == nil {
+		t.Fatal("expected error for invalid JSON response, got nil")
+	}
+}
+
+func TestDo_EmptyTokenSendsEmptyBearer(t *testing.T) {
+	var receivedAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	// An empty token still sends "Bearer " header. The CLI prevents this by
+	// checking OURA_TOKEN before creating the client.
+	c := NewClient("", srv.URL)
+	resp, err := c.Do(context.Background(), http.MethodGet, "/v2/test", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	resp.Body.Close()
+
+	// Go's HTTP library trims trailing whitespace, so "Bearer " becomes "Bearer".
+	if receivedAuth != "Bearer" {
+		t.Errorf("expected 'Bearer' header with empty token, got %q", receivedAuth)
+	}
+}
