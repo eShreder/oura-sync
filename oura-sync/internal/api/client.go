@@ -131,10 +131,10 @@ func (c *Client) Fetch(ctx context.Context, path string, params url.Values) ([]j
 		allData = append(allData, pr.Data...)
 
 		if pr.NextToken == nil || *pr.NextToken == "" {
-			break
+			return allData, nil
 		}
 		p.Set("next_token", *pr.NextToken)
 	}
 
-	return allData, nil
+	return nil, fmt.Errorf("pagination limit (%d pages) exceeded for %s", maxPages, path)
 }

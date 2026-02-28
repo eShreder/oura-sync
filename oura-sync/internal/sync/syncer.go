@@ -83,6 +83,10 @@ func (s *Syncer) syncSingleton(ctx context.Context, ep api.Endpoint) (int, error
 		return 0, fmt.Errorf("reading %s response: %w", ep.Name, err)
 	}
 
+	if !json.Valid(body) {
+		return 0, fmt.Errorf("%s response is not valid JSON", ep.Name)
+	}
+
 	records := []json.RawMessage{json.RawMessage(body)}
 	if err := s.store.UpsertRecords(ep.Name, records); err != nil {
 		return 0, fmt.Errorf("storing %s: %w", ep.Name, err)
