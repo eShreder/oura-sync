@@ -77,11 +77,11 @@ oura-sync/
 - [x] запустить `go test ./...` — должны проходить
 
 ### Task 3: Определение эндпоинтов и моделей данных
-- [ ] создать `internal/api/endpoints.go`: struct `Endpoint` с полями `Name`, `Path`, `UseDatetime` (bool для heartrate)
-- [ ] определить реестр всех 18 эндпоинтов как `var Endpoints = []Endpoint{...}`
-- [ ] создать `internal/model/types.go`: базовый struct для paginated response (`Data []json.RawMessage`, `NextToken *string`)
-- [ ] написать тесты для endpoint registry (все 18 эндпоинтов определены, пути корректные)
-- [ ] запустить `go test ./...` — должны проходить
+- [x] создать `internal/api/endpoints.go`: struct `Endpoint` с полями `Name`, `Path`, `UseDatetime` (bool для heartrate)
+- [x] определить реестр всех 18 эндпоинтов как `var Endpoints = []Endpoint{...}`
+- [x] создать `internal/model/types.go`: базовый struct для paginated response (`Data []json.RawMessage`, `NextToken *string`)
+- [x] написать тесты для endpoint registry (все 18 эндпоинтов определены, пути корректные)
+- [x] запустить `go test ./...` — должны проходить
 
 ### Task 4: SQLite хранилище — схема и базовые операции
 - [ ] создать `internal/store/sqlite.go`: struct `Store` с `*sql.DB`
