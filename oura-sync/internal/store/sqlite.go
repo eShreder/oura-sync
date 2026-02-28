@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"strings"
+	"regexp"
 	"time"
 
 	"github.com/user/oura-sync/internal/api"
@@ -77,7 +77,7 @@ func (s *Store) migrate() error {
 		default:
 			ddl = fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 				id TEXT PRIMARY KEY,
-				day TEXT NOT NULL,
+				day TEXT,
 				data JSON NOT NULL,
 				synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 			)`, ep.Name)
@@ -91,6 +91,9 @@ func (s *Store) migrate() error {
 	return nil
 }
 
+// validEndpointName matches only lowercase letters, digits, and underscores.
+var validEndpointName = regexp.MustCompile(`^[a-z0-9_]+$`)
+
 // UpsertRecords inserts or updates records for the given endpoint.
 // It extracts the primary key from the JSON data:
 //   - personal_info: singleton row with id=1
@@ -99,6 +102,10 @@ func (s *Store) migrate() error {
 func (s *Store) UpsertRecords(endpointName string, records []json.RawMessage) error {
 	if len(records) == 0 {
 		return nil
+	}
+
+	if !validEndpointName.MatchString(endpointName) {
+		return fmt.Errorf("invalid endpoint name: %q", endpointName)
 	}
 
 	tx, err := s.db.Begin()
@@ -161,12 +168,11 @@ func (s *Store) upsertOne(tx *sql.Tx, endpointName string, raw json.RawMessage) 
 			return fmt.Errorf("%s record missing id field", endpointName)
 		}
 
-		tableName := endpointName
 		_, err := tx.Exec(
 			fmt.Sprintf(
 				`INSERT INTO %s (id, day, data, synced_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)
 				 ON CONFLICT(id) DO UPDATE SET day=excluded.day, data=excluded.data, synced_at=excluded.synced_at`,
-				tableName,
+				endpointName,
 			),
 			rec.ID, rec.Day, string(raw),
 		)
@@ -215,26 +221,3 @@ func (s *Store) SetLastSync(endpoint string, t time.Time) error {
 	return nil
 }
 
-// TableNames returns the list of endpoint table names that were created.
-func (s *Store) TableNames() ([]string, error) {
-	rows, err := s.db.Query(
-		`SELECT name FROM sqlite_master WHERE type='table' AND name != 'sync_state' ORDER BY name`,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var names []string
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return nil, err
-		}
-		// Exclude internal SQLite tables.
-		if !strings.HasPrefix(name, "sqlite_") {
-			names = append(names, name)
-		}
-	}
-	return names, rows.Err()
-}

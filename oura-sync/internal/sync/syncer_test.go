@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -141,10 +142,10 @@ func TestSyncEndpoint_EmptyResponse(t *testing.T) {
 }
 
 func TestSyncEndpoint_WithPagination(t *testing.T) {
-	requestCount := 0
+	var requestCount atomic.Int32
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount++
-		if requestCount == 1 {
+		n := requestCount.Add(1)
+		if n == 1 {
 			token := "page2"
 			json.NewEncoder(w).Encode(api.PaginatedResponse{
 				Data:      []json.RawMessage{json.RawMessage(`{"id":"1","day":"2024-01-15","score":80}`)},
@@ -169,8 +170,8 @@ func TestSyncEndpoint_WithPagination(t *testing.T) {
 	if count != 2 {
 		t.Errorf("got %d records, want 2", count)
 	}
-	if requestCount != 2 {
-		t.Errorf("expected 2 HTTP requests, got %d", requestCount)
+	if requestCount.Load() != 2 {
+		t.Errorf("expected 2 HTTP requests, got %d", requestCount.Load())
 	}
 }
 

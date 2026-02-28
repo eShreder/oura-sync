@@ -88,7 +88,7 @@ func (c *Client) Do(ctx context.Context, method, path string, params url.Values)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		resp.Body.Close()
 		return nil, fmt.Errorf("API error: HTTP %d: %s", resp.StatusCode, string(body))
 	}
@@ -96,34 +96,41 @@ func (c *Client) Do(ctx context.Context, method, path string, params url.Values)
 	return resp, nil
 }
 
+// maxPages is the safety limit for pagination to prevent infinite loops.
+const maxPages = 1000
+
 // Fetch retrieves all records from an endpoint, handling pagination automatically.
 // It returns a slice of raw JSON messages representing individual records.
 func (c *Client) Fetch(ctx context.Context, path string, params url.Values) ([]json.RawMessage, error) {
 	var allData []json.RawMessage
 
-	if params == nil {
-		params = url.Values{}
+	// Clone params to avoid mutating the caller's map.
+	p := url.Values{}
+	if params != nil {
+		for k, v := range params {
+			p[k] = v
+		}
 	}
 
-	for {
-		resp, err := c.Do(ctx, http.MethodGet, path, params)
+	for page := 0; page < maxPages; page++ {
+		resp, err := c.Do(ctx, http.MethodGet, path, p)
 		if err != nil {
-			return allData, err
+			return nil, err
 		}
 
-		var page PaginatedResponse
-		err = json.NewDecoder(resp.Body).Decode(&page)
+		var pr PaginatedResponse
+		err = json.NewDecoder(resp.Body).Decode(&pr)
 		resp.Body.Close()
 		if err != nil {
-			return allData, fmt.Errorf("decoding response: %w", err)
+			return nil, fmt.Errorf("decoding response: %w", err)
 		}
 
-		allData = append(allData, page.Data...)
+		allData = append(allData, pr.Data...)
 
-		if page.NextToken == nil || *page.NextToken == "" {
+		if pr.NextToken == nil || *pr.NextToken == "" {
 			break
 		}
-		params.Set("next_token", *page.NextToken)
+		p.Set("next_token", *pr.NextToken)
 	}
 
 	return allData, nil

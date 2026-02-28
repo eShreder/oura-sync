@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/user/oura-sync/internal/api"
@@ -130,7 +131,7 @@ func TestIntegration_FullSyncCycle(t *testing.T) {
 
 // TestIntegration_WithPagination verifies that pagination works end-to-end.
 func TestIntegration_WithPagination(t *testing.T) {
-	requestCount := 0
+	var requestCount atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 
@@ -148,8 +149,8 @@ func TestIntegration_WithPagination(t *testing.T) {
 		}
 
 		if path == "/v2/usercollection/daily_activity" {
-			requestCount++
-			if requestCount == 1 {
+			n := requestCount.Add(1)
+			if n == 1 {
 				token := "page2"
 				json.NewEncoder(w).Encode(api.PaginatedResponse{
 					Data:      []json.RawMessage{json.RawMessage(`{"id":"p1","day":"2024-01-01","score":80}`)},
@@ -190,8 +191,8 @@ func TestIntegration_WithPagination(t *testing.T) {
 		t.Errorf("daily_activity: got %d records, want 2", results["daily_activity"])
 	}
 
-	if requestCount != 2 {
-		t.Errorf("daily_activity pagination: got %d requests, want 2", requestCount)
+	if requestCount.Load() != 2 {
+		t.Errorf("daily_activity pagination: got %d requests, want 2", requestCount.Load())
 	}
 }
 

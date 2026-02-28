@@ -78,7 +78,7 @@ func (s *Syncer) syncSingleton(ctx context.Context, ep api.Endpoint) (int, error
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MB limit
 	if err != nil {
 		return 0, fmt.Errorf("reading %s response: %w", ep.Name, err)
 	}
@@ -110,7 +110,6 @@ func (s *Syncer) SyncAll(ctx context.Context, defaultDays int) (map[string]int, 
 		if !ep.IsSingleton {
 			lastSync, err := s.store.GetLastSync(ep.Name)
 			if err != nil {
-				s.logger.Error("getting last sync", "endpoint", ep.Name, "error", err)
 				return results, fmt.Errorf("getting last sync for %s: %w", ep.Name, err)
 			}
 
@@ -123,14 +122,12 @@ func (s *Syncer) SyncAll(ctx context.Context, defaultDays int) (map[string]int, 
 
 		count, err := s.SyncEndpoint(ctx, ep, startDate, endDate)
 		if err != nil {
-			s.logger.Error("sync failed", "endpoint", ep.Name, "error", err)
 			return results, fmt.Errorf("syncing %s: %w", ep.Name, err)
 		}
 
 		results[ep.Name] = count
 
 		if err := s.store.SetLastSync(ep.Name, now); err != nil {
-			s.logger.Error("updating sync state", "endpoint", ep.Name, "error", err)
 			return results, fmt.Errorf("updating sync state for %s: %w", ep.Name, err)
 		}
 	}

@@ -56,6 +56,7 @@ func run() int {
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
 	go func() {
 		select {
 		case sig := <-sigCh:

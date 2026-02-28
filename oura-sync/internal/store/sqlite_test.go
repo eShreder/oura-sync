@@ -21,22 +21,23 @@ func newTestStore(t *testing.T) *Store {
 func TestNew_CreatesAllTables(t *testing.T) {
 	s := newTestStore(t)
 
-	tables, err := s.TableNames()
-	if err != nil {
-		t.Fatalf("getting table names: %v", err)
+	// Count endpoint tables (excluding sync_state).
+	var tableCount int
+	if err := s.db.QueryRow(
+		"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name != 'sync_state' AND name NOT LIKE 'sqlite_%'",
+	).Scan(&tableCount); err != nil {
+		t.Fatalf("counting tables: %v", err)
 	}
 
-	// Should have one table per endpoint (18 total).
-	if len(tables) != len(api.Endpoints) {
-		t.Errorf("got %d tables, want %d", len(tables), len(api.Endpoints))
+	if tableCount != len(api.Endpoints) {
+		t.Errorf("got %d tables, want %d", tableCount, len(api.Endpoints))
 	}
 
 	// Verify sync_state table exists separately.
 	var count int
-	err = s.db.QueryRow(
+	if err := s.db.QueryRow(
 		"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sync_state'",
-	).Scan(&count)
-	if err != nil {
+	).Scan(&count); err != nil {
 		t.Fatalf("checking sync_state table: %v", err)
 	}
 	if count != 1 {
@@ -88,16 +89,22 @@ func TestUpsertRecords_StandardEndpoint_Insert(t *testing.T) {
 
 	// Verify records were inserted.
 	var count int
-	s.db.QueryRow("SELECT COUNT(*) FROM daily_activity").Scan(&count)
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM daily_activity").Scan(&count); err != nil {
+		t.Fatalf("counting records: %v", err)
+	}
 	if count != 2 {
 		t.Errorf("got %d records, want 2", count)
 	}
 
 	// Verify data integrity.
 	var data string
-	s.db.QueryRow("SELECT data FROM daily_activity WHERE id='abc123'").Scan(&data)
+	if err := s.db.QueryRow("SELECT data FROM daily_activity WHERE id='abc123'").Scan(&data); err != nil {
+		t.Fatalf("selecting data: %v", err)
+	}
 	var parsed map[string]interface{}
-	json.Unmarshal([]byte(data), &parsed)
+	if err := json.Unmarshal([]byte(data), &parsed); err != nil {
+		t.Fatalf("unmarshaling data: %v", err)
+	}
 	if parsed["score"].(float64) != 85 {
 		t.Errorf("got score %v, want 85", parsed["score"])
 	}
@@ -124,16 +131,22 @@ func TestUpsertRecords_StandardEndpoint_Update(t *testing.T) {
 
 	// Should still be 1 record.
 	var count int
-	s.db.QueryRow("SELECT COUNT(*) FROM daily_activity").Scan(&count)
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM daily_activity").Scan(&count); err != nil {
+		t.Fatalf("counting records: %v", err)
+	}
 	if count != 1 {
 		t.Errorf("got %d records, want 1 after upsert", count)
 	}
 
 	// Score should be updated.
 	var data string
-	s.db.QueryRow("SELECT data FROM daily_activity WHERE id='abc123'").Scan(&data)
+	if err := s.db.QueryRow("SELECT data FROM daily_activity WHERE id='abc123'").Scan(&data); err != nil {
+		t.Fatalf("selecting data: %v", err)
+	}
 	var parsed map[string]interface{}
-	json.Unmarshal([]byte(data), &parsed)
+	if err := json.Unmarshal([]byte(data), &parsed); err != nil {
+		t.Fatalf("unmarshaling data: %v", err)
+	}
 	if parsed["score"].(float64) != 90 {
 		t.Errorf("got score %v, want 90 after update", parsed["score"])
 	}
@@ -152,9 +165,13 @@ func TestUpsertRecords_PersonalInfo(t *testing.T) {
 	}
 
 	var data string
-	s.db.QueryRow("SELECT data FROM personal_info WHERE id=1").Scan(&data)
+	if err := s.db.QueryRow("SELECT data FROM personal_info WHERE id=1").Scan(&data); err != nil {
+		t.Fatalf("selecting personal_info data: %v", err)
+	}
 	var parsed map[string]interface{}
-	json.Unmarshal([]byte(data), &parsed)
+	if err := json.Unmarshal([]byte(data), &parsed); err != nil {
+		t.Fatalf("unmarshaling personal_info data: %v", err)
+	}
 	if parsed["age"].(float64) != 35 {
 		t.Errorf("got age %v, want 35", parsed["age"])
 	}
@@ -169,13 +186,19 @@ func TestUpsertRecords_PersonalInfo(t *testing.T) {
 
 	// Should still be 1 record (singleton).
 	var count int
-	s.db.QueryRow("SELECT COUNT(*) FROM personal_info").Scan(&count)
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM personal_info").Scan(&count); err != nil {
+		t.Fatalf("counting personal_info records: %v", err)
+	}
 	if count != 1 {
 		t.Errorf("got %d personal_info records, want 1", count)
 	}
 
-	s.db.QueryRow("SELECT data FROM personal_info WHERE id=1").Scan(&data)
-	json.Unmarshal([]byte(data), &parsed)
+	if err := s.db.QueryRow("SELECT data FROM personal_info WHERE id=1").Scan(&data); err != nil {
+		t.Fatalf("selecting updated personal_info data: %v", err)
+	}
+	if err := json.Unmarshal([]byte(data), &parsed); err != nil {
+		t.Fatalf("unmarshaling updated personal_info data: %v", err)
+	}
 	if parsed["age"].(float64) != 36 {
 		t.Errorf("got age %v, want 36 after update", parsed["age"])
 	}
@@ -195,7 +218,9 @@ func TestUpsertRecords_Heartrate(t *testing.T) {
 	}
 
 	var count int
-	s.db.QueryRow("SELECT COUNT(*) FROM heartrate").Scan(&count)
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM heartrate").Scan(&count); err != nil {
+		t.Fatalf("counting heartrate records: %v", err)
+	}
 	if count != 2 {
 		t.Errorf("got %d heartrate records, want 2", count)
 	}
@@ -203,7 +228,9 @@ func TestUpsertRecords_Heartrate(t *testing.T) {
 	// Verify bpm and source extraction.
 	var bpm int
 	var source string
-	s.db.QueryRow("SELECT bpm, source FROM heartrate WHERE timestamp='2024-01-15T10:00:00+00:00'").Scan(&bpm, &source)
+	if err := s.db.QueryRow("SELECT bpm, source FROM heartrate WHERE timestamp='2024-01-15T10:00:00+00:00'").Scan(&bpm, &source); err != nil {
+		t.Fatalf("selecting heartrate data: %v", err)
+	}
 	if bpm != 72 {
 		t.Errorf("got bpm %d, want 72", bpm)
 	}
@@ -230,13 +257,17 @@ func TestUpsertRecords_Heartrate_Update(t *testing.T) {
 	}
 
 	var count int
-	s.db.QueryRow("SELECT COUNT(*) FROM heartrate").Scan(&count)
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM heartrate").Scan(&count); err != nil {
+		t.Fatalf("counting heartrate records: %v", err)
+	}
 	if count != 1 {
 		t.Errorf("got %d records, want 1 after upsert", count)
 	}
 
 	var bpm int
-	s.db.QueryRow("SELECT bpm FROM heartrate WHERE timestamp='2024-01-15T10:00:00+00:00'").Scan(&bpm)
+	if err := s.db.QueryRow("SELECT bpm FROM heartrate WHERE timestamp='2024-01-15T10:00:00+00:00'").Scan(&bpm); err != nil {
+		t.Fatalf("selecting heartrate bpm: %v", err)
+	}
 	if bpm != 75 {
 		t.Errorf("got bpm %d, want 75 after update", bpm)
 	}
@@ -339,11 +370,21 @@ func TestSetLastSync_MultipleEndpoints(t *testing.T) {
 	t1 := time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)
 	t2 := time.Date(2024, 1, 16, 0, 0, 0, 0, time.UTC)
 
-	s.SetLastSync("daily_activity", t1)
-	s.SetLastSync("heartrate", t2)
+	if err := s.SetLastSync("daily_activity", t1); err != nil {
+		t.Fatalf("setting daily_activity sync: %v", err)
+	}
+	if err := s.SetLastSync("heartrate", t2); err != nil {
+		t.Fatalf("setting heartrate sync: %v", err)
+	}
 
-	got1, _ := s.GetLastSync("daily_activity")
-	got2, _ := s.GetLastSync("heartrate")
+	got1, err := s.GetLastSync("daily_activity")
+	if err != nil {
+		t.Fatalf("getting daily_activity sync: %v", err)
+	}
+	got2, err := s.GetLastSync("heartrate")
+	if err != nil {
+		t.Fatalf("getting heartrate sync: %v", err)
+	}
 
 	if !got1.Equal(t1) {
 		t.Errorf("daily_activity sync time: got %v, want %v", got1, t1)
@@ -397,13 +438,29 @@ func TestUpsertRecords_MultipleEndpoints(t *testing.T) {
 	}
 
 	var activityCount, sleepCount int
-	s.db.QueryRow("SELECT COUNT(*) FROM daily_activity").Scan(&activityCount)
-	s.db.QueryRow("SELECT COUNT(*) FROM daily_sleep").Scan(&sleepCount)
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM daily_activity").Scan(&activityCount); err != nil {
+		t.Fatalf("counting daily_activity: %v", err)
+	}
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM daily_sleep").Scan(&sleepCount); err != nil {
+		t.Fatalf("counting daily_sleep: %v", err)
+	}
 
 	if activityCount != 1 {
 		t.Errorf("daily_activity: got %d, want 1", activityCount)
 	}
 	if sleepCount != 1 {
 		t.Errorf("daily_sleep: got %d, want 1", sleepCount)
+	}
+}
+
+func TestUpsertRecords_InvalidEndpointName(t *testing.T) {
+	s := newTestStore(t)
+
+	records := []json.RawMessage{
+		json.RawMessage(`{"id":"1","day":"2024-01-15"}`),
+	}
+	err := s.UpsertRecords("foo; DROP TABLE sync_state--", records)
+	if err == nil {
+		t.Fatal("expected error for invalid endpoint name, got nil")
 	}
 }

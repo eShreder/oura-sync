@@ -1,3 +1,6 @@
 
 # ralphex progress logs
 .ralphex/progress/
+
+# Go build output
+oura-sync/oura-sync
