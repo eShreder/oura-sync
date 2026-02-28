@@ -37,6 +37,9 @@ func NewClient(token, baseURL string) *Client {
 
 // SetMaxRetries sets the maximum number of retries for transient errors.
 func (c *Client) SetMaxRetries(n int) {
+	if n < 0 {
+		n = 0
+	}
 	c.maxRetries = n
 }
 
