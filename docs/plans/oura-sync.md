@@ -105,13 +105,13 @@ oura-sync/
 - [x] запустить `go test ./...` — должны проходить
 
 ### Task 6: Интеграция в main и CLI
-- [ ] обновить `cmd/oura-sync/main.go`: парсинг флагов (`--db=oura.db`, `--days=90`), чтение `OURA_TOKEN`
-- [ ] инициализация Store, Client, Syncer; вызов `SyncAll`
-- [ ] вывод summary: сколько записей загружено по каждому эндпоинту
-- [ ] graceful handling: context с timeout, корректное закрытие БД
-- [ ] собрать `go build ./cmd/oura-sync/` — должно компилироваться
-- [ ] написать integration test: httptest сервер + temp SQLite, прогнать полный цикл синхронизации
-- [ ] запустить `go test ./...` — должны проходить
+- [x] обновить `cmd/oura-sync/main.go`: парсинг флагов (`--db=oura.db`, `--days=90`), чтение `OURA_TOKEN`
+- [x] инициализация Store, Client, Syncer; вызов `SyncAll`
+- [x] вывод summary: сколько записей загружено по каждому эндпоинту
+- [x] graceful handling: context с timeout, корректное закрытие БД
+- [x] собрать `go build ./cmd/oura-sync/` — должно компилироваться
+- [x] написать integration test: httptest сервер + temp SQLite, прогнать полный цикл синхронизации
+- [x] запустить `go test ./...` — должны проходить
 
 ### Task 7: Верификация и финализация
 - [ ] проверить все требования из Overview реализованы
