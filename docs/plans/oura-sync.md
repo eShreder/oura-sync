@@ -68,13 +68,13 @@ oura-sync/
 - [x] убедиться что `go build ./...` проходит без ошибок
 
 ### Task 2: HTTP клиент для Oura API
-- [ ] создать `internal/api/client.go`: struct `Client` с полями `httpClient`, `token`, `baseURL`
-- [ ] реализовать метод `Do(ctx, method, path, params) (*http.Response, error)` с Bearer auth и query params
-- [ ] добавить retry с exponential backoff при 429/5xx (максимум 3 попытки)
-- [ ] реализовать generic метод `Fetch(ctx, endpoint, params) ([]json.RawMessage, error)` с автоматической пагинацией через `next_token`
-- [ ] написать тесты для `Client.Do` (auth header, query params, error handling) с httptest.Server
-- [ ] написать тесты для `Fetch` (пагинация, retry при 429)
-- [ ] запустить `go test ./...` — должны проходить
+- [x] создать `internal/api/client.go`: struct `Client` с полями `httpClient`, `token`, `baseURL`
+- [x] реализовать метод `Do(ctx, method, path, params) (*http.Response, error)` с Bearer auth и query params
+- [x] добавить retry с exponential backoff при 429/5xx (максимум 3 попытки)
+- [x] реализовать generic метод `Fetch(ctx, endpoint, params) ([]json.RawMessage, error)` с автоматической пагинацией через `next_token`
+- [x] написать тесты для `Client.Do` (auth header, query params, error handling) с httptest.Server
+- [x] написать тесты для `Fetch` (пагинация, retry при 429)
+- [x] запустить `go test ./...` — должны проходить
 
 ### Task 3: Определение эндпоинтов и моделей данных
 - [ ] создать `internal/api/endpoints.go`: struct `Endpoint` с полями `Name`, `Path`, `UseDatetime` (bool для heartrate)
