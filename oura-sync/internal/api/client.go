@@ -122,7 +122,7 @@ func (c *Client) Fetch(ctx context.Context, path string, params url.Values) ([]j
 		}
 
 		var pr PaginatedResponse
-		err = json.NewDecoder(resp.Body).Decode(&pr)
+		err = json.NewDecoder(io.LimitReader(resp.Body, 10<<20)).Decode(&pr) // 10 MB per page
 		resp.Body.Close()
 		if err != nil {
 			return nil, fmt.Errorf("decoding response: %w", err)

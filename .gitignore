@@ -4,3 +4,14 @@
 
 # Go build output
 oura-sync/oura-sync
+
+# SQLite databases
+*.db
+*.db-wal
+*.db-shm
+
+# Environment files with secrets
+.env
+
+# Test coverage artifacts
+cover.out
