@@ -84,15 +84,15 @@ oura-sync/
 - [x] запустить `go test ./...` — должны проходить
 
 ### Task 4: SQLite хранилище — схема и базовые операции
-- [ ] создать `internal/store/sqlite.go`: struct `Store` с `*sql.DB`
-- [ ] реализовать `New(dbPath) (*Store, error)` — открытие БД и миграция схемы
-- [ ] схема: по одной таблице на эндпоинт (столбцы: `id TEXT PRIMARY KEY`, `day TEXT`, `data JSON`, `synced_at TIMESTAMP`), плюс таблица `sync_state` (`endpoint TEXT PRIMARY KEY`, `last_sync TEXT`)
-- [ ] для `personal_info` — таблица с одной строкой (`singleton`)
-- [ ] для `heartrate` — таблица с `timestamp TEXT PRIMARY KEY` вместо `id`
-- [ ] реализовать `UpsertRecords(endpoint, records []json.RawMessage) error` — вставка/обновление записей (извлекать `id` из JSON)
-- [ ] реализовать `GetLastSync(endpoint) (time.Time, error)` и `SetLastSync(endpoint, time.Time) error`
-- [ ] написать тесты: создание схемы, upsert (insert + update), sync state get/set
-- [ ] запустить `go test ./...` — должны проходить
+- [x] создать `internal/store/sqlite.go`: struct `Store` с `*sql.DB`
+- [x] реализовать `New(dbPath) (*Store, error)` — открытие БД и миграция схемы
+- [x] схема: по одной таблице на эндпоинт (столбцы: `id TEXT PRIMARY KEY`, `day TEXT`, `data JSON`, `synced_at TIMESTAMP`), плюс таблица `sync_state` (`endpoint TEXT PRIMARY KEY`, `last_sync TEXT`)
+- [x] для `personal_info` — таблица с одной строкой (`singleton`)
+- [x] для `heartrate` — таблица с `timestamp TEXT PRIMARY KEY` вместо `id`
+- [x] реализовать `UpsertRecords(endpoint, records []json.RawMessage) error` — вставка/обновление записей (извлекать `id` из JSON)
+- [x] реализовать `GetLastSync(endpoint) (time.Time, error)` и `SetLastSync(endpoint, time.Time) error`
+- [x] написать тесты: создание схемы, upsert (insert + update), sync state get/set
+- [x] запустить `go test ./...` — должны проходить
 
 ### Task 5: Логика синхронизации
 - [ ] создать `internal/sync/syncer.go`: struct `Syncer` с `api.Client` и `store.Store`
