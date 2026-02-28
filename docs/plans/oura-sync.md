@@ -95,14 +95,14 @@ oura-sync/
 - [x] запустить `go test ./...` — должны проходить
 
 ### Task 5: Логика синхронизации
-- [ ] создать `internal/sync/syncer.go`: struct `Syncer` с `api.Client` и `store.Store`
-- [ ] реализовать `SyncEndpoint(ctx, endpoint, startDate, endDate) (int, error)` — загрузка данных с пагинацией и сохранение в SQLite
-- [ ] реализовать `SyncAll(ctx, defaultDays int) error` — итерация по всем эндпоинтам, для каждого: определить start_date из sync_state (или now - defaultDays), загрузить, сохранить, обновить sync_state
-- [ ] для `personal_info` — отдельная логика: GET без дат, upsert единственной записи
-- [ ] для `heartrate` — использовать `start_datetime`/`end_datetime` вместо `start_date`/`end_date`
-- [ ] добавить логирование через `log/slog`: начало/конец синхронизации эндпоинта, кол-во записей, ошибки
-- [ ] написать тесты с mock API client и in-memory SQLite
-- [ ] запустить `go test ./...` — должны проходить
+- [x] создать `internal/sync/syncer.go`: struct `Syncer` с `api.Client` и `store.Store`
+- [x] реализовать `SyncEndpoint(ctx, endpoint, startDate, endDate) (int, error)` — загрузка данных с пагинацией и сохранение в SQLite
+- [x] реализовать `SyncAll(ctx, defaultDays int) error` — итерация по всем эндпоинтам, для каждого: определить start_date из sync_state (или now - defaultDays), загрузить, сохранить, обновить sync_state
+- [x] для `personal_info` — отдельная логика: GET без дат, upsert единственной записи
+- [x] для `heartrate` — использовать `start_datetime`/`end_datetime` вместо `start_date`/`end_date`
+- [x] добавить логирование через `log/slog`: начало/конец синхронизации эндпоинта, кол-во записей, ошибки
+- [x] написать тесты с mock API client и in-memory SQLite
+- [x] запустить `go test ./...` — должны проходить
 
 ### Task 6: Интеграция в main и CLI
 - [ ] обновить `cmd/oura-sync/main.go`: парсинг флагов (`--db=oura.db`, `--days=90`), чтение `OURA_TOKEN`

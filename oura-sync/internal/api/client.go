@@ -35,6 +35,11 @@ func NewClient(token, baseURL string) *Client {
 	}
 }
 
+// SetMaxRetries sets the maximum number of retries for transient errors.
+func (c *Client) SetMaxRetries(n int) {
+	c.maxRetries = n
+}
+
 // Do executes an HTTP request with Bearer auth and query parameters.
 // It returns the raw http.Response. The caller is responsible for closing the body.
 func (c *Client) Do(ctx context.Context, method, path string, params url.Values) (*http.Response, error) {
