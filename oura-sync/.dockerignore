@@ -1,0 +1,7 @@
+oura.db
+oura.db-shm
+oura.db-wal
+oura-sync.yaml
+*.db
+cover.out
+oura-sync
