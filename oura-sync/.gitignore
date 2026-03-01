@@ -1,0 +1,13 @@
+# Config with secrets
+oura-sync.yaml
+
+# Binary
+oura-sync
+
+# SQLite database
+*.db
+*.db-shm
+*.db-wal
+
+# Test coverage
+cover.out
