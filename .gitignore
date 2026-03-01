@@ -2,9 +2,6 @@
 # ralphex progress logs
 .ralphex/progress/
 
-# Go build output
-oura-sync/oura-sync
-
 # SQLite databases
 *.db
 *.db-wal
@@ -13,5 +10,11 @@ oura-sync/oura-sync
 # Environment files with secrets
 .env
 
+# Go build output
+oura-sync
+
 # Test coverage artifacts
 cover.out
+
+# Config with secrets
+oura-sync.yaml
