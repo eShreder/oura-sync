@@ -185,3 +185,133 @@ func TestMerge_AllFlagsSet(t *testing.T) {
 		t.Errorf("Timeout = %v, want 2m", result.Timeout)
 	}
 }
+
+func TestLoad_WithLocations(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := `token: "abc"
+locations:
+  - city: "Da Nang"
+    latitude: 16.0544
+    longitude: 108.2022
+    timezone: "Asia/Ho_Chi_Minh"
+    start_date: "2025-11-01"
+  - city: "Tbilisi"
+    latitude: 41.6938
+    longitude: 44.8015
+    timezone: "Asia/Tbilisi"
+    start_date: "2026-03-13"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(cfg.Locations) != 2 {
+		t.Fatalf("Locations count = %d, want 2", len(cfg.Locations))
+	}
+	if cfg.Locations[0].City != "Da Nang" {
+		t.Errorf("Locations[0].City = %q, want Da Nang", cfg.Locations[0].City)
+	}
+	if cfg.Locations[0].Latitude != 16.0544 {
+		t.Errorf("Locations[0].Latitude = %v, want 16.0544", cfg.Locations[0].Latitude)
+	}
+	if cfg.Locations[0].Timezone != "Asia/Ho_Chi_Minh" {
+		t.Errorf("Locations[0].Timezone = %q, want Asia/Ho_Chi_Minh", cfg.Locations[0].Timezone)
+	}
+	if cfg.Locations[1].City != "Tbilisi" {
+		t.Errorf("Locations[1].City = %q, want Tbilisi", cfg.Locations[1].City)
+	}
+	if cfg.Locations[1].StartDate != "2026-03-13" {
+		t.Errorf("Locations[1].StartDate = %q, want 2026-03-13", cfg.Locations[1].StartDate)
+	}
+}
+
+func TestValidateLocations_Valid(t *testing.T) {
+	locs := []Location{
+		{City: "Da Nang", Latitude: 16.05, Longitude: 108.20, Timezone: "Asia/Ho_Chi_Minh", StartDate: "2025-11-01"},
+		{City: "Tbilisi", Latitude: 41.69, Longitude: 44.80, Timezone: "Asia/Tbilisi", StartDate: "2026-03-13"},
+	}
+	if err := ValidateLocations(locs); err != nil {
+		t.Errorf("expected no error, got: %v", err)
+	}
+}
+
+func TestValidateLocations_Empty(t *testing.T) {
+	if err := ValidateLocations(nil); err != nil {
+		t.Errorf("expected no error for nil, got: %v", err)
+	}
+	if err := ValidateLocations([]Location{}); err != nil {
+		t.Errorf("expected no error for empty, got: %v", err)
+	}
+}
+
+func TestValidateLocations_MissingCity(t *testing.T) {
+	locs := []Location{{Latitude: 16.05, Longitude: 108.20, Timezone: "Asia/Ho_Chi_Minh", StartDate: "2025-11-01"}}
+	if err := ValidateLocations(locs); err == nil {
+		t.Error("expected error for missing city")
+	}
+}
+
+func TestValidateLocations_MissingStartDate(t *testing.T) {
+	locs := []Location{{City: "Test", Latitude: 16.05, Longitude: 108.20, Timezone: "UTC"}}
+	if err := ValidateLocations(locs); err == nil {
+		t.Error("expected error for missing start_date")
+	}
+}
+
+func TestValidateLocations_InvalidStartDate(t *testing.T) {
+	locs := []Location{{City: "Test", Latitude: 16.05, Longitude: 108.20, Timezone: "UTC", StartDate: "not-a-date"}}
+	if err := ValidateLocations(locs); err == nil {
+		t.Error("expected error for invalid start_date")
+	}
+}
+
+func TestValidateLocations_InvalidLatitude(t *testing.T) {
+	locs := []Location{{City: "Test", Latitude: 91, Longitude: 108.20, Timezone: "UTC", StartDate: "2025-01-01"}}
+	if err := ValidateLocations(locs); err == nil {
+		t.Error("expected error for latitude > 90")
+	}
+}
+
+func TestValidateLocations_InvalidLongitude(t *testing.T) {
+	locs := []Location{{City: "Test", Latitude: 16.05, Longitude: 181, Timezone: "UTC", StartDate: "2025-01-01"}}
+	if err := ValidateLocations(locs); err == nil {
+		t.Error("expected error for longitude > 180")
+	}
+}
+
+func TestValidateLocations_MissingTimezone(t *testing.T) {
+	locs := []Location{{City: "Test", Latitude: 16.05, Longitude: 108.20, StartDate: "2025-01-01"}}
+	if err := ValidateLocations(locs); err == nil {
+		t.Error("expected error for missing timezone")
+	}
+}
+
+func TestValidateLocations_InvalidTimezone(t *testing.T) {
+	locs := []Location{{City: "Test", Latitude: 16.05, Longitude: 108.20, Timezone: "Not/Real", StartDate: "2025-01-01"}}
+	if err := ValidateLocations(locs); err == nil {
+		t.Error("expected error for invalid timezone")
+	}
+}
+
+func TestLoad_NoLocations(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := `token: "abc"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.Locations != nil {
+		t.Errorf("Locations = %v, want nil", cfg.Locations)
+	}
+}

@@ -9,3 +9,18 @@
 
 # Overall sync timeout (Go duration format: 30s, 5m, 1h).
 # timeout: "10m"
+
+# Location periods for weather data sync.
+# Each entry tracks where you were; end_date is auto-derived from the next entry's start_date.
+# The last entry is treated as ongoing (current location).
+# locations:
+#   - city: "Da Nang"
+#     latitude: 16.0544
+#     longitude: 108.2022
+#     timezone: "Asia/Ho_Chi_Minh"
+#     start_date: "2025-11-01"
+#   - city: "Tbilisi"
+#     latitude: 41.6938
+#     longitude: 44.8015
+#     timezone: "Asia/Tbilisi"
+#     start_date: "2026-03-13"

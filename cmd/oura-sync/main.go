@@ -9,11 +9,13 @@ import (
 	"os/signal"
 	"sort"
 	"syscall"
+	"time"
 
 	"github.com/user/oura-sync/internal/api"
 	"github.com/user/oura-sync/internal/config"
 	"github.com/user/oura-sync/internal/store"
 	"github.com/user/oura-sync/internal/sync"
+	"github.com/user/oura-sync/internal/weather"
 
 	_ "modernc.org/sqlite"
 )
@@ -29,6 +31,7 @@ func run() int {
 	dbPath := flag.String("db", defaults.DB, "path to SQLite database file")
 	days := flag.Int("days", defaults.Days, "number of days to sync on first run")
 	timeout := flag.Duration("timeout", defaults.Timeout, "overall sync timeout")
+	skipWeather := flag.Bool("skip-weather", false, "skip weather data sync")
 	flag.Parse()
 
 	// Track which flags were explicitly set on the command line.
@@ -99,8 +102,75 @@ func run() int {
 	}
 
 	printSummary(results)
+
+	// Weather sync (non-blocking: errors are logged as warnings).
+	if !*skipWeather {
+		weatherCount := runWeatherSync(ctx, cfg, st, logger)
+		if weatherCount > 0 {
+			logger.Info("weather sync completed", "records", weatherCount)
+		}
+	}
+
 	logger.Info("sync completed successfully")
 	return 0
+}
+
+func runWeatherSync(ctx context.Context, cfg config.Config, st *store.Store, logger *slog.Logger) int {
+	if len(cfg.Locations) == 0 {
+		// Clean up any previously-synced location data.
+		if err := st.UpsertLocationPeriods(nil); err != nil {
+			logger.Warn("failed to clean location periods", "error", err)
+		}
+		return 0
+	}
+
+	if err := config.ValidateLocations(cfg.Locations); err != nil {
+		logger.Warn("invalid location config, skipping weather sync", "error", err)
+		return 0
+	}
+
+	// Sort locations by start_date for correct end_date derivation.
+	locs := make([]config.Location, len(cfg.Locations))
+	copy(locs, cfg.Locations)
+	sort.Slice(locs, func(i, j int) bool { return locs[i].StartDate < locs[j].StartDate })
+
+	// Convert config locations to weather.LocationPeriod and derive end_dates.
+	periods := make([]weather.LocationPeriod, len(locs))
+	for i, loc := range locs {
+		periods[i] = weather.LocationPeriod{
+			City:      loc.City,
+			Latitude:  loc.Latitude,
+			Longitude: loc.Longitude,
+			Timezone:  loc.Timezone,
+			StartDate: loc.StartDate,
+		}
+		// Derive end_date from next location's start_date (minus 1 day).
+		if i+1 < len(locs) {
+			next := locs[i+1]
+			t, err := time.Parse("2006-01-02", next.StartDate)
+			if err == nil {
+				periods[i].EndDate = t.AddDate(0, 0, -1).Format("2006-01-02")
+			}
+		}
+	}
+
+	if err := st.UpsertLocationPeriods(periods); err != nil {
+		logger.Warn("failed to sync location periods", "error", err)
+		return 0
+	}
+
+	if len(periods) == 0 {
+		return 0
+	}
+
+	client := weather.NewClient()
+	syncer := weather.NewSyncer(client, st, logger)
+
+	count, err := syncer.SyncAll(ctx)
+	if err != nil {
+		logger.Warn("weather sync failed", "error", err)
+	}
+	return count
 }
 
 func printSummary(results map[string]int) {

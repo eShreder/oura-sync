@@ -9,12 +9,62 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Location represents a period the user spent at a specific location.
+type Location struct {
+	City      string  `yaml:"city"`
+	Latitude  float64 `yaml:"latitude"`
+	Longitude float64 `yaml:"longitude"`
+	Timezone  string  `yaml:"timezone"`
+	StartDate string  `yaml:"start_date"`
+}
+
 // Config holds all application settings.
 type Config struct {
-	Token   string        `yaml:"token"`
-	DB      string        `yaml:"db"`
-	Days    int           `yaml:"days"`
-	Timeout time.Duration `yaml:"timeout"`
+	Token     string        `yaml:"token"`
+	DB        string        `yaml:"db"`
+	Days      int           `yaml:"days"`
+	Timeout   time.Duration `yaml:"timeout"`
+	Locations []Location    `yaml:"locations"`
+}
+
+// ValidateLocations checks that all location entries have the required fields
+// and that values are within valid ranges.
+func ValidateLocations(locs []Location) error {
+	for i, loc := range locs {
+		if loc.City == "" {
+			return fmt.Errorf("location[%d]: city is required", i)
+		}
+		if loc.StartDate == "" {
+			return fmt.Errorf("location[%d] (%s): start_date is required", i, loc.City)
+		}
+		if _, err := time.Parse("2006-01-02", loc.StartDate); err != nil {
+			return fmt.Errorf("location[%d] (%s): invalid start_date %q: must be YYYY-MM-DD", i, loc.City, loc.StartDate)
+		}
+		if loc.Latitude < -90 || loc.Latitude > 90 {
+			return fmt.Errorf("location[%d] (%s): latitude must be between -90 and 90, got %v", i, loc.City, loc.Latitude)
+		}
+		if loc.Longitude < -180 || loc.Longitude > 180 {
+			return fmt.Errorf("location[%d] (%s): longitude must be between -180 and 180, got %v", i, loc.City, loc.Longitude)
+		}
+		if loc.Timezone == "" {
+			return fmt.Errorf("location[%d] (%s): timezone is required", i, loc.City)
+		}
+		if _, err := time.LoadLocation(loc.Timezone); err != nil {
+			return fmt.Errorf("location[%d] (%s): invalid timezone %q", i, loc.City, loc.Timezone)
+		}
+	}
+
+	// Reject duplicate start_date values — they cause non-deterministic end_date derivation.
+	seen := make(map[string]int, len(locs))
+	for i, loc := range locs {
+		if prev, ok := seen[loc.StartDate]; ok {
+			return fmt.Errorf("location[%d] (%s): duplicate start_date %q (same as location[%d] %s)",
+				i, loc.City, loc.StartDate, prev, locs[prev].City)
+		}
+		seen[loc.StartDate] = i
+	}
+
+	return nil
 }
 
 // Defaults returns a Config populated with default values.
