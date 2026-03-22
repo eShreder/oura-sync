@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,8 +12,10 @@ import (
 	"testing"
 
 	"github.com/user/oura-sync/internal/api"
+	"github.com/user/oura-sync/internal/config"
 	"github.com/user/oura-sync/internal/store"
 	"github.com/user/oura-sync/internal/sync"
+	"github.com/user/oura-sync/internal/weather"
 )
 
 // TestIntegration_FullSyncCycle runs a complete sync against a mock HTTP server
@@ -234,3 +237,92 @@ func TestIntegration_ContextCancellation(t *testing.T) {
 		t.Fatal("expected error from cancelled context")
 	}
 }
+
+// TestIntegration_WeatherSync verifies weather sync integration.
+func TestIntegration_WeatherSync(t *testing.T) {
+	weatherSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := struct {
+			Daily *struct {
+				Time           []string   `json:"time"`
+				TempMax        []*float64 `json:"temperature_2m_max"`
+				TempMin        []*float64 `json:"temperature_2m_min"`
+				TempMean       []*float64 `json:"temperature_2m_mean"`
+				Humidity       []*float64 `json:"relative_humidity_2m_mean"`
+				Pressure       []*float64 `json:"surface_pressure_mean"`
+				Precip         []*float64 `json:"precipitation_sum"`
+				WeatherCode    []*float64 `json:"weather_code"`
+			} `json:"daily"`
+		}{
+			Daily: &struct {
+				Time        []string   `json:"time"`
+				TempMax     []*float64 `json:"temperature_2m_max"`
+				TempMin     []*float64 `json:"temperature_2m_min"`
+				TempMean    []*float64 `json:"temperature_2m_mean"`
+				Humidity    []*float64 `json:"relative_humidity_2m_mean"`
+				Pressure    []*float64 `json:"surface_pressure_mean"`
+				Precip      []*float64 `json:"precipitation_sum"`
+				WeatherCode []*float64 `json:"weather_code"`
+			}{
+				Time:        []string{"2025-11-01", "2025-11-02"},
+				TempMax:     []*float64{ptrF(32.5), ptrF(31.0)},
+				TempMin:     []*float64{ptrF(24.0), ptrF(23.0)},
+				TempMean:    []*float64{ptrF(28.0), ptrF(27.0)},
+				Humidity:    []*float64{ptrF(82.0), ptrF(78.0)},
+				Pressure:    []*float64{ptrF(1008.0), ptrF(1009.0)},
+				Precip:      []*float64{ptrF(0.0), ptrF(5.0)},
+				WeatherCode: []*float64{ptrF(1), ptrF(61)},
+			},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer weatherSrv.Close()
+
+	st, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("creating store: %v", err)
+	}
+	defer st.Close()
+
+	cfg := config.Config{
+		Locations: []config.Location{
+			{City: "Da Nang", Latitude: 16.0544, Longitude: 108.2022, Timezone: "Asia/Ho_Chi_Minh", StartDate: "2025-11-01"},
+		},
+	}
+
+	// Convert and upsert locations.
+	periods := []weather.LocationPeriod{
+		{City: cfg.Locations[0].City, Latitude: cfg.Locations[0].Latitude, Longitude: cfg.Locations[0].Longitude, Timezone: cfg.Locations[0].Timezone, StartDate: cfg.Locations[0].StartDate},
+	}
+	if err := st.UpsertLocationPeriods(periods); err != nil {
+		t.Fatalf("UpsertLocationPeriods: %v", err)
+	}
+
+	client := weather.NewClientWithURLs(weatherSrv.URL, weatherSrv.URL)
+	logger := slog.Default()
+	syncer := weather.NewSyncer(client, st, logger)
+
+	count, err := syncer.SyncAll(context.Background())
+	if err != nil {
+		t.Fatalf("weather SyncAll: %v", err)
+	}
+
+	if count == 0 {
+		t.Error("expected weather records to be synced")
+	}
+
+	// Verify data in DB.
+	locs, _ := st.GetLocationPeriods()
+	if len(locs) != 1 {
+		t.Fatalf("expected 1 location, got %d", len(locs))
+	}
+
+	lastDay, err := st.GetLastWeatherDay(locs[0].ID)
+	if err != nil {
+		t.Fatalf("GetLastWeatherDay: %v", err)
+	}
+	if lastDay == "" {
+		t.Error("expected non-empty last weather day")
+	}
+}
+
+func ptrF(f float64) *float64 { return &f }

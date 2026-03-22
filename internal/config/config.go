@@ -9,12 +9,22 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Location represents a period the user spent at a specific location.
+type Location struct {
+	City      string  `yaml:"city"`
+	Latitude  float64 `yaml:"latitude"`
+	Longitude float64 `yaml:"longitude"`
+	Timezone  string  `yaml:"timezone"`
+	StartDate string  `yaml:"start_date"`
+}
+
 // Config holds all application settings.
 type Config struct {
-	Token   string        `yaml:"token"`
-	DB      string        `yaml:"db"`
-	Days    int           `yaml:"days"`
-	Timeout time.Duration `yaml:"timeout"`
+	Token     string        `yaml:"token"`
+	DB        string        `yaml:"db"`
+	Days      int           `yaml:"days"`
+	Timeout   time.Duration `yaml:"timeout"`
+	Locations []Location    `yaml:"locations"`
 }
 
 // Defaults returns a Config populated with default values.

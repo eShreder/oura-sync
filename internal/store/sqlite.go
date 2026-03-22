@@ -26,10 +26,20 @@ func New(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("opening database: %w", err)
 	}
 
+	// Pin to a single connection so that per-connection PRAGMAs
+	// (foreign_keys, journal_mode) remain in effect for all queries.
+	db.SetMaxOpenConns(1)
+
 	// Enable WAL mode for better concurrent read performance.
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("setting WAL mode: %w", err)
+	}
+
+	// Enable foreign key enforcement (off by default in SQLite).
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("enabling foreign keys: %w", err)
 	}
 
 	s := &Store{db: db}
@@ -101,6 +111,7 @@ func (s *Store) migrate() error {
 			start_date TEXT NOT NULL,
 			end_date TEXT,
 			synced_at TEXT DEFAULT CURRENT_TIMESTAMP
+			/* UNIQUE enforced via CREATE UNIQUE INDEX below (avoids duplicate autoindex on fresh DBs) */
 		)
 	`); err != nil {
 		return fmt.Errorf("creating location_period table: %w", err)
@@ -132,6 +143,56 @@ func (s *Store) migrate() error {
 		)
 	`); err != nil {
 		return fmt.Errorf("creating daily_weather table: %w", err)
+	}
+
+	// For pre-existing databases created before UNIQUE(city, start_date) was
+	// added to the CREATE TABLE DDL: deduplicate any rows first, keeping the
+	// most recently synced entry per (city, start_date) pair, then add the
+	// unique index so the ON CONFLICT upsert works correctly.
+	// Reassign weather from duplicate location rows to the surviving row.
+	// UPDATE OR IGNORE skips rows where the survivor already has that day,
+	// preserving as much historical weather data as possible.
+	// Survivor is chosen by most recent synced_at (not MAX(id)), because
+	// the old select-then-update code could update any duplicate row,
+	// making a lower-id row the freshest.
+	const survivorSubquery = `
+		SELECT id FROM (
+			SELECT id, city, start_date,
+				ROW_NUMBER() OVER (
+					PARTITION BY city, start_date
+					ORDER BY synced_at DESC, id DESC
+				) AS rn
+			FROM location_period
+		) WHERE rn = 1
+	`
+	if _, err := s.db.Exec(`
+		UPDATE OR IGNORE daily_weather
+		SET location_id = (
+			SELECT lp2.id
+			FROM location_period lp2
+			JOIN location_period dup ON dup.id = daily_weather.location_id
+				AND lp2.city = dup.city AND lp2.start_date = dup.start_date
+			WHERE lp2.id IN (` + survivorSubquery + `)
+		)
+		WHERE location_id NOT IN (` + survivorSubquery + `)
+	`); err != nil {
+		return fmt.Errorf("reassigning weather for duplicate locations: %w", err)
+	}
+	// Delete any remaining weather rows that couldn't be reassigned (day conflicts).
+	if _, err := s.db.Exec(`
+		DELETE FROM daily_weather
+		WHERE location_id NOT IN (` + survivorSubquery + `)
+	`); err != nil {
+		return fmt.Errorf("cleaning weather for duplicate locations: %w", err)
+	}
+	if _, err := s.db.Exec(`
+		DELETE FROM location_period
+		WHERE id NOT IN (` + survivorSubquery + `)
+	`); err != nil {
+		return fmt.Errorf("deduplicating location_period rows: %w", err)
+	}
+	if _, err := s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_location_period_city_start ON location_period(city, start_date)`); err != nil {
+		return fmt.Errorf("creating location_period unique index: %w", err)
 	}
 
 	return nil
@@ -277,30 +338,48 @@ func (s *Store) UpsertLocationPeriods(periods []weather.LocationPeriod) error {
 	defer tx.Rollback()
 
 	for _, p := range periods {
-		var id int64
+		// Read old values for weather invalidation check (may not exist yet).
+		var oldID int64
+		var oldLat, oldLon float64
+		var oldTz, oldEndDate string
+		var existed bool
 		err := tx.QueryRow(
-			"SELECT id FROM location_period WHERE city = ? AND start_date = ?",
+			"SELECT id, latitude, longitude, timezone, COALESCE(end_date, '') FROM location_period WHERE city = ? AND start_date = ?",
 			p.City, p.StartDate,
-		).Scan(&id)
-
+		).Scan(&oldID, &oldLat, &oldLon, &oldTz, &oldEndDate)
 		if err == sql.ErrNoRows {
-			_, err = tx.Exec(
-				`INSERT INTO location_period (city, latitude, longitude, timezone, start_date, end_date, synced_at)
-				 VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-				p.City, p.Latitude, p.Longitude, p.Timezone, p.StartDate, nilIfEmpty(p.EndDate),
-			)
-			if err != nil {
-				return fmt.Errorf("inserting location period %s: %w", p.City, err)
-			}
+			existed = false
 		} else if err != nil {
 			return fmt.Errorf("querying location period %s: %w", p.City, err)
 		} else {
-			_, err = tx.Exec(
-				`UPDATE location_period SET latitude=?, longitude=?, timezone=?, end_date=?, synced_at=CURRENT_TIMESTAMP WHERE id=?`,
-				p.Latitude, p.Longitude, p.Timezone, nilIfEmpty(p.EndDate), id,
-			)
-			if err != nil {
-				return fmt.Errorf("updating location period %s: %w", p.City, err)
+			existed = true
+		}
+
+		// Atomic upsert — no race between concurrent writers.
+		_, err = tx.Exec(
+			`INSERT INTO location_period (city, latitude, longitude, timezone, start_date, end_date, synced_at)
+			 VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+			 ON CONFLICT(city, start_date) DO UPDATE SET
+				latitude=excluded.latitude, longitude=excluded.longitude,
+				timezone=excluded.timezone, end_date=excluded.end_date,
+				synced_at=excluded.synced_at`,
+			p.City, p.Latitude, p.Longitude, p.Timezone, p.StartDate, nilIfEmpty(p.EndDate),
+		)
+		if err != nil {
+			return fmt.Errorf("upserting location period %s: %w", p.City, err)
+		}
+
+		// Invalidate cached weather if coordinates or timezone changed.
+		if existed {
+			if oldLat != p.Latitude || oldLon != p.Longitude || oldTz != p.Timezone {
+				if _, err := tx.Exec("DELETE FROM daily_weather WHERE location_id = ?", oldID); err != nil {
+					return fmt.Errorf("invalidating weather for %s: %w", p.City, err)
+				}
+			} else if p.EndDate != "" && (oldEndDate == "" || p.EndDate < oldEndDate) {
+				// End date was shortened — prune weather data beyond the new end date.
+				if _, err := tx.Exec("DELETE FROM daily_weather WHERE location_id = ? AND day > ?", oldID, p.EndDate); err != nil {
+					return fmt.Errorf("pruning weather for %s: %w", p.City, err)
+				}
 			}
 		}
 	}

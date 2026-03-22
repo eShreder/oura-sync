@@ -135,7 +135,7 @@ func (c *Client) fetch(ctx context.Context, baseURL string, params url.Values) (
 			return nil, fmt.Errorf("executing request: %w", err)
 		}
 
-		if resp.StatusCode >= 500 {
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			resp.Body.Close()
 			if attempt == c.maxRetries {
 				return nil, fmt.Errorf("request failed after %d retries: HTTP %d", c.maxRetries, resp.StatusCode)
