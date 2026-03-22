@@ -9,4 +9,8 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /bin/oura-sync ./cmd/oura-sync
 FROM alpine:3.21
 RUN apk add --no-cache ca-certificates tzdata
 COPY --from=build /bin/oura-sync /usr/local/bin/oura-sync
+
+VOLUME ["/config", "/data"]
+
 ENTRYPOINT ["oura-sync"]
+CMD ["--config", "/config/oura-sync.yaml", "--db", "/data/oura.db"]

@@ -322,6 +322,64 @@ func TestSyncAll_ContextCancellation(t *testing.T) {
 	}
 }
 
+func TestSyncAll_NotFoundSkipsEndpoint(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+
+		if path == "/v2/usercollection/personal_info" {
+			w.Write([]byte(`{"age":30,"email":"test@example.com"}`))
+			return
+		}
+
+		// vo2_max returns 404.
+		if path == "/v2/usercollection/vo2_max" {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{"detail":"Not Found"}`))
+			return
+		}
+
+		if path == "/v2/usercollection/heartrate" {
+			json.NewEncoder(w).Encode(api.PaginatedResponse{
+				Data:      []json.RawMessage{json.RawMessage(`{"timestamp":"2024-01-15T10:00:00+00:00","bpm":72,"source":"awake"}`)},
+				NextToken: nil,
+			})
+			return
+		}
+
+		json.NewEncoder(w).Encode(api.PaginatedResponse{
+			Data:      []json.RawMessage{json.RawMessage(`{"id":"rec1","day":"2024-01-15","score":80}`)},
+			NextToken: nil,
+		})
+	})
+
+	client, st, _ := newTestDeps(t, handler)
+	s := NewSyncer(client, st, nil)
+
+	results, err := s.SyncAll(context.Background(), 90)
+	if err != nil {
+		t.Fatalf("SyncAll should succeed despite 404: %v", err)
+	}
+
+	// vo2_max should not be in results (skipped).
+	if _, ok := results["vo2_max"]; ok {
+		t.Error("vo2_max should not be in results when 404")
+	}
+
+	// heartrate (after vo2_max) should still be synced.
+	if results["heartrate"] != 1 {
+		t.Errorf("heartrate: got %d records, want 1 (should sync despite earlier 404)", results["heartrate"])
+	}
+
+	// vo2_max sync state should NOT be updated.
+	lastSync, err := st.GetLastSync("vo2_max")
+	if err != nil {
+		t.Fatalf("getting vo2_max sync state: %v", err)
+	}
+	if !lastSync.IsZero() {
+		t.Error("vo2_max sync state should not be set when endpoint returned 404")
+	}
+}
+
 func TestSyncAll_APIErrorStopsSync(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// personal_info is first -- fail it.

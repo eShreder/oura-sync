@@ -11,6 +11,18 @@ import (
 	"time"
 )
 
+// NotFoundError is returned when the API responds with HTTP 404.
+// This typically means the endpoint is not available for the user's
+// account, subscription, or ring model.
+type NotFoundError struct {
+	Path string
+	Body string
+}
+
+func (e *NotFoundError) Error() string {
+	return fmt.Sprintf("API error: HTTP 404: %s (path: %s)", e.Body, e.Path)
+}
+
 // PaginatedResponse represents the standard Oura API paginated response.
 type PaginatedResponse struct {
 	Data      []json.RawMessage `json:"data"`
@@ -93,6 +105,9 @@ func (c *Client) Do(ctx context.Context, method, path string, params url.Values)
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		resp.Body.Close()
+		if resp.StatusCode == http.StatusNotFound {
+			return nil, &NotFoundError{Path: path, Body: string(body)}
+		}
 		return nil, fmt.Errorf("API error: HTTP %d: %s", resp.StatusCode, string(body))
 	}
 

@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -126,6 +127,11 @@ func (s *Syncer) SyncAll(ctx context.Context, defaultDays int) (map[string]int, 
 
 		count, err := s.SyncEndpoint(ctx, ep, startDate, endDate)
 		if err != nil {
+			var nfe *api.NotFoundError
+			if errors.As(err, &nfe) {
+				s.logger.Warn("endpoint not available, skipping", "endpoint", ep.Name)
+				continue
+			}
 			return results, fmt.Errorf("syncing %s: %w", ep.Name, err)
 		}
 
