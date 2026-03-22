@@ -12,6 +12,7 @@ Designed to run via cron or systemd timer. Each run fetches data since the last 
 - Retry with exponential backoff on 429/5xx errors
 - Pure Go, no CGO — single static binary
 - Data stored as JSON blobs for forward compatibility with API changes
+- Weather data sync via Open-Meteo API (free, no API key) for biometric–weather correlation
 
 ## Supported Endpoints
 
@@ -32,8 +33,29 @@ go build -o oura-sync ./cmd/oura-sync/
 | `--db` | `oura.db` | Path to SQLite database file |
 | `--days` | `90` | Number of days to sync on first run |
 | `--timeout` | `10m` | Overall sync timeout |
+| `--skip-weather` | `false` | Skip weather data sync |
 
 The Oura API token must be set via the `OURA_TOKEN` environment variable. Get a Personal Access Token at https://cloud.ouraring.com/personal-access-tokens.
+
+### Weather / Location Config
+
+To enable weather sync, add `locations` to your YAML config. Each entry defines where you were and when. The `end_date` for each location is auto-derived from the next entry's `start_date`.
+
+```yaml
+locations:
+  - city: "Da Nang"
+    latitude: 16.0544
+    longitude: 108.2022
+    timezone: "Asia/Ho_Chi_Minh"
+    start_date: "2025-11-01"
+  - city: "Tbilisi"
+    latitude: 41.6938
+    longitude: 44.8015
+    timezone: "Asia/Tbilisi"
+    start_date: "2026-03-13"
+```
+
+Weather data is fetched from [Open-Meteo](https://open-meteo.com/) (free, no API key). Historical data comes from the archive API; the most recent ~5 days use the forecast API's `past_days` parameter. Weather sync errors never block the Oura sync.
 
 ## Usage
 
@@ -78,6 +100,18 @@ sqlite3 oura.db "SELECT timestamp, bpm, source FROM heartrate ORDER BY timestamp
 
 # Last sync times
 sqlite3 oura.db "SELECT * FROM sync_state"
+
+# Correlate sleep score with weather
+sqlite3 oura.db "
+SELECT ds.day,
+       json_extract(ds.data, '$.score') AS sleep_score,
+       dw.temperature_mean, dw.humidity_mean, dw.pressure_mean
+FROM daily_sleep ds
+JOIN daily_weather dw ON dw.day = ds.day
+JOIN location_period lp ON lp.id = dw.location_id
+  AND ds.day >= lp.start_date AND (lp.end_date IS NULL OR ds.day <= lp.end_date)
+ORDER BY ds.day;
+"
 ```
 
 ## Running Tests

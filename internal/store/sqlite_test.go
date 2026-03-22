@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/user/oura-sync/internal/api"
+	"github.com/user/oura-sync/internal/weather"
 )
 
 func newTestStore(t *testing.T) *Store {
@@ -21,10 +22,10 @@ func newTestStore(t *testing.T) *Store {
 func TestNew_CreatesAllTables(t *testing.T) {
 	s := newTestStore(t)
 
-	// Count endpoint tables (excluding sync_state).
+	// Count endpoint tables (excluding sync_state, location_period, daily_weather).
 	var tableCount int
 	if err := s.db.QueryRow(
-		"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name != 'sync_state' AND name NOT LIKE 'sqlite_%'",
+		"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT IN ('sync_state','location_period','daily_weather') AND name NOT LIKE 'sqlite_%'",
 	).Scan(&tableCount); err != nil {
 		t.Fatalf("counting tables: %v", err)
 	}
@@ -462,5 +463,297 @@ func TestUpsertRecords_InvalidEndpointName(t *testing.T) {
 	err := s.UpsertRecords("foo; DROP TABLE sync_state--", records)
 	if err == nil {
 		t.Fatal("expected error for invalid endpoint name, got nil")
+	}
+}
+
+// --- Weather / Location tests ---
+
+func TestNew_CreatesWeatherTables(t *testing.T) {
+	s := newTestStore(t)
+
+	for _, table := range []string{"location_period", "daily_weather"} {
+		var count int
+		err := s.db.QueryRow(
+			"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", table,
+		).Scan(&count)
+		if err != nil {
+			t.Fatalf("checking table %s: %v", table, err)
+		}
+		if count != 1 {
+			t.Errorf("table %s not found", table)
+		}
+	}
+}
+
+func TestUpsertLocationPeriods_Insert(t *testing.T) {
+	s := newTestStore(t)
+
+	periods := []weather.LocationPeriod{
+		{City: "Da Nang", Latitude: 16.0544, Longitude: 108.2022, Timezone: "Asia/Ho_Chi_Minh", StartDate: "2025-11-01", EndDate: "2026-03-12"},
+		{City: "Tbilisi", Latitude: 41.6938, Longitude: 44.8015, Timezone: "Asia/Tbilisi", StartDate: "2026-03-13"},
+	}
+
+	if err := s.UpsertLocationPeriods(periods); err != nil {
+		t.Fatalf("UpsertLocationPeriods: %v", err)
+	}
+
+	got, err := s.GetLocationPeriods()
+	if err != nil {
+		t.Fatalf("GetLocationPeriods: %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("got %d periods, want 2", len(got))
+	}
+	if got[0].City != "Da Nang" {
+		t.Errorf("got[0].City = %q, want Da Nang", got[0].City)
+	}
+	if got[0].EndDate != "2026-03-12" {
+		t.Errorf("got[0].EndDate = %q, want 2026-03-12", got[0].EndDate)
+	}
+	if got[1].City != "Tbilisi" {
+		t.Errorf("got[1].City = %q, want Tbilisi", got[1].City)
+	}
+	if got[1].EndDate != "" {
+		t.Errorf("got[1].EndDate = %q, want empty (ongoing)", got[1].EndDate)
+	}
+}
+
+func TestUpsertLocationPeriods_Update(t *testing.T) {
+	s := newTestStore(t)
+
+	periods := []weather.LocationPeriod{
+		{City: "Da Nang", Latitude: 16.0544, Longitude: 108.2022, Timezone: "Asia/Ho_Chi_Minh", StartDate: "2025-11-01"},
+	}
+	if err := s.UpsertLocationPeriods(periods); err != nil {
+		t.Fatalf("initial insert: %v", err)
+	}
+
+	// Update with end_date.
+	periods[0].EndDate = "2026-03-12"
+	if err := s.UpsertLocationPeriods(periods); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+
+	got, err := s.GetLocationPeriods()
+	if err != nil {
+		t.Fatalf("GetLocationPeriods: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d periods, want 1", len(got))
+	}
+	if got[0].EndDate != "2026-03-12" {
+		t.Errorf("EndDate = %q, want 2026-03-12", got[0].EndDate)
+	}
+}
+
+func TestUpsertLocationPeriods_RemovesStale(t *testing.T) {
+	s := newTestStore(t)
+
+	// Insert two locations.
+	periods := []weather.LocationPeriod{
+		{City: "Da Nang", Latitude: 16.0544, Longitude: 108.2022, Timezone: "Asia/Ho_Chi_Minh", StartDate: "2025-11-01", EndDate: "2026-03-12"},
+		{City: "Tbilisi", Latitude: 41.6938, Longitude: 44.8015, Timezone: "Asia/Tbilisi", StartDate: "2026-03-13"},
+	}
+	if err := s.UpsertLocationPeriods(periods); err != nil {
+		t.Fatalf("initial insert: %v", err)
+	}
+
+	got, _ := s.GetLocationPeriods()
+	if len(got) != 2 {
+		t.Fatalf("got %d periods, want 2", len(got))
+	}
+
+	// Add weather data for Tbilisi (the one we'll remove).
+	if err := s.UpsertWeatherRecords(got[1].ID, []weather.DayRecord{
+		{Day: "2026-03-14", TemperatureMax: ptrF(10.0), RawJSON: json.RawMessage(`{}`)},
+	}); err != nil {
+		t.Fatalf("inserting weather: %v", err)
+	}
+
+	// Now upsert with only Da Nang — Tbilisi should be removed.
+	periods = []weather.LocationPeriod{
+		{City: "Da Nang", Latitude: 16.0544, Longitude: 108.2022, Timezone: "Asia/Ho_Chi_Minh", StartDate: "2025-11-01", EndDate: "2026-03-12"},
+	}
+	if err := s.UpsertLocationPeriods(periods); err != nil {
+		t.Fatalf("upsert with removal: %v", err)
+	}
+
+	got, _ = s.GetLocationPeriods()
+	if len(got) != 1 {
+		t.Fatalf("got %d periods after removal, want 1", len(got))
+	}
+	if got[0].City != "Da Nang" {
+		t.Errorf("remaining city = %q, want Da Nang", got[0].City)
+	}
+
+	// Verify weather data for removed location was also deleted.
+	var count int
+	s.db.QueryRow("SELECT COUNT(*) FROM daily_weather").Scan(&count)
+	if count != 0 {
+		t.Errorf("expected 0 weather records after location removal, got %d", count)
+	}
+}
+
+func TestGetLocationForDay(t *testing.T) {
+	s := newTestStore(t)
+
+	periods := []weather.LocationPeriod{
+		{City: "Da Nang", Latitude: 16.0544, Longitude: 108.2022, Timezone: "Asia/Ho_Chi_Minh", StartDate: "2025-11-01", EndDate: "2026-03-12"},
+		{City: "Tbilisi", Latitude: 41.6938, Longitude: 44.8015, Timezone: "Asia/Tbilisi", StartDate: "2026-03-13"},
+	}
+	if err := s.UpsertLocationPeriods(periods); err != nil {
+		t.Fatalf("UpsertLocationPeriods: %v", err)
+	}
+
+	// Day in Da Nang period.
+	loc, err := s.GetLocationForDay("2025-12-15")
+	if err != nil {
+		t.Fatalf("GetLocationForDay: %v", err)
+	}
+	if loc == nil || loc.City != "Da Nang" {
+		t.Errorf("expected Da Nang for 2025-12-15, got %v", loc)
+	}
+
+	// Day in Tbilisi period.
+	loc, err = s.GetLocationForDay("2026-03-20")
+	if err != nil {
+		t.Fatalf("GetLocationForDay: %v", err)
+	}
+	if loc == nil || loc.City != "Tbilisi" {
+		t.Errorf("expected Tbilisi for 2026-03-20, got %v", loc)
+	}
+
+	// Day before any period.
+	loc, err = s.GetLocationForDay("2025-10-01")
+	if err != nil {
+		t.Fatalf("GetLocationForDay: %v", err)
+	}
+	if loc != nil {
+		t.Errorf("expected nil for 2025-10-01, got %v", loc)
+	}
+}
+
+func ptrF(f float64) *float64 { return &f }
+func ptrI(i int) *int         { return &i }
+
+func TestUpsertWeatherRecords_InsertAndUpdate(t *testing.T) {
+	s := newTestStore(t)
+
+	// Insert a location first.
+	periods := []weather.LocationPeriod{
+		{City: "Da Nang", Latitude: 16.0544, Longitude: 108.2022, Timezone: "Asia/Ho_Chi_Minh", StartDate: "2025-11-01"},
+	}
+	if err := s.UpsertLocationPeriods(periods); err != nil {
+		t.Fatalf("UpsertLocationPeriods: %v", err)
+	}
+	locs, _ := s.GetLocationPeriods()
+	locID := locs[0].ID
+
+	records := []weather.DayRecord{
+		{Day: "2025-11-01", TemperatureMax: ptrF(32.5), TemperatureMin: ptrF(24.1), TemperatureMean: ptrF(28.3), HumidityMean: ptrF(82.0), WeatherCode: ptrI(1), RawJSON: json.RawMessage(`{"temperature_2m_max":32.5}`)},
+		{Day: "2025-11-02", TemperatureMax: ptrF(31.0), TemperatureMean: ptrF(27.0), RawJSON: json.RawMessage(`{"temperature_2m_max":31.0}`)},
+	}
+
+	if err := s.UpsertWeatherRecords(locID, records); err != nil {
+		t.Fatalf("UpsertWeatherRecords: %v", err)
+	}
+
+	var count int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM daily_weather WHERE location_id = ?", locID).Scan(&count); err != nil {
+		t.Fatalf("counting weather records: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("got %d weather records, want 2", count)
+	}
+
+	// Verify extracted columns.
+	var tempMax, humidity float64
+	if err := s.db.QueryRow("SELECT temperature_max, humidity_mean FROM daily_weather WHERE day='2025-11-01' AND location_id=?", locID).Scan(&tempMax, &humidity); err != nil {
+		t.Fatalf("selecting weather data: %v", err)
+	}
+	if tempMax != 32.5 {
+		t.Errorf("temperature_max = %v, want 32.5", tempMax)
+	}
+	if humidity != 82.0 {
+		t.Errorf("humidity_mean = %v, want 82.0", humidity)
+	}
+
+	// Update record.
+	updated := []weather.DayRecord{
+		{Day: "2025-11-01", TemperatureMax: ptrF(33.0), HumidityMean: ptrF(85.0), RawJSON: json.RawMessage(`{"temperature_2m_max":33.0}`)},
+	}
+	if err := s.UpsertWeatherRecords(locID, updated); err != nil {
+		t.Fatalf("UpsertWeatherRecords update: %v", err)
+	}
+
+	// Still 2 records.
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM daily_weather WHERE location_id = ?", locID).Scan(&count); err != nil {
+		t.Fatalf("counting after update: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("got %d records after update, want 2", count)
+	}
+
+	// Values should be updated.
+	if err := s.db.QueryRow("SELECT temperature_max, humidity_mean FROM daily_weather WHERE day='2025-11-01' AND location_id=?", locID).Scan(&tempMax, &humidity); err != nil {
+		t.Fatalf("selecting updated data: %v", err)
+	}
+	if tempMax != 33.0 {
+		t.Errorf("updated temperature_max = %v, want 33.0", tempMax)
+	}
+}
+
+func TestGetLastWeatherDay(t *testing.T) {
+	s := newTestStore(t)
+
+	periods := []weather.LocationPeriod{
+		{City: "Da Nang", Latitude: 16.0544, Longitude: 108.2022, Timezone: "Asia/Ho_Chi_Minh", StartDate: "2025-11-01"},
+	}
+	if err := s.UpsertLocationPeriods(periods); err != nil {
+		t.Fatalf("UpsertLocationPeriods: %v", err)
+	}
+	locs, _ := s.GetLocationPeriods()
+	locID := locs[0].ID
+
+	// No data yet.
+	day, err := s.GetLastWeatherDay(locID)
+	if err != nil {
+		t.Fatalf("GetLastWeatherDay: %v", err)
+	}
+	if day != "" {
+		t.Errorf("expected empty string for no data, got %q", day)
+	}
+
+	// Insert some data.
+	records := []weather.DayRecord{
+		{Day: "2025-11-01", TemperatureMax: ptrF(32.0), RawJSON: json.RawMessage(`{}`)},
+		{Day: "2025-11-03", TemperatureMax: ptrF(30.0), RawJSON: json.RawMessage(`{}`)},
+		{Day: "2025-11-02", TemperatureMax: ptrF(31.0), RawJSON: json.RawMessage(`{}`)},
+	}
+	if err := s.UpsertWeatherRecords(locID, records); err != nil {
+		t.Fatalf("UpsertWeatherRecords: %v", err)
+	}
+
+	day, err = s.GetLastWeatherDay(locID)
+	if err != nil {
+		t.Fatalf("GetLastWeatherDay: %v", err)
+	}
+	if day != "2025-11-03" {
+		t.Errorf("last weather day = %q, want 2025-11-03", day)
+	}
+}
+
+func TestUpsertWeatherRecords_EmptySlice(t *testing.T) {
+	s := newTestStore(t)
+
+	err := s.UpsertWeatherRecords(1, nil)
+	if err != nil {
+		t.Fatalf("upserting nil records: %v", err)
+	}
+
+	err = s.UpsertWeatherRecords(1, []weather.DayRecord{})
+	if err != nil {
+		t.Fatalf("upserting empty records: %v", err)
 	}
 }

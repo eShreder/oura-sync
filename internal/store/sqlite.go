@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/user/oura-sync/internal/api"
+	"github.com/user/oura-sync/internal/weather"
 
 	_ "modernc.org/sqlite"
 )
@@ -86,6 +88,50 @@ func (s *Store) migrate() error {
 		if _, err := s.db.Exec(ddl); err != nil {
 			return fmt.Errorf("creating table %s: %w", ep.Name, err)
 		}
+	}
+
+	// Create location_period table for weather sync.
+	if _, err := s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS location_period (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			city TEXT NOT NULL,
+			latitude REAL NOT NULL,
+			longitude REAL NOT NULL,
+			timezone TEXT NOT NULL,
+			start_date TEXT NOT NULL,
+			end_date TEXT,
+			synced_at TEXT DEFAULT CURRENT_TIMESTAMP
+		)
+	`); err != nil {
+		return fmt.Errorf("creating location_period table: %w", err)
+	}
+
+	// Create daily_weather table.
+	if _, err := s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS daily_weather (
+			day TEXT NOT NULL,
+			location_id INTEGER NOT NULL,
+			temperature_max REAL,
+			temperature_min REAL,
+			temperature_mean REAL,
+			apparent_temperature_max REAL,
+			apparent_temperature_min REAL,
+			humidity_mean REAL,
+			dewpoint_mean REAL,
+			precipitation_sum REAL,
+			pressure_mean REAL,
+			wind_speed_max REAL,
+			cloud_cover_mean REAL,
+			sunshine_duration REAL,
+			uv_index_max REAL,
+			weather_code INTEGER,
+			data JSON NOT NULL,
+			synced_at TEXT DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (day, location_id),
+			FOREIGN KEY (location_id) REFERENCES location_period(id)
+		)
+	`); err != nil {
+		return fmt.Errorf("creating daily_weather table: %w", err)
 	}
 
 	return nil
@@ -219,5 +265,194 @@ func (s *Store) SetLastSync(endpoint string, t time.Time) error {
 		return fmt.Errorf("setting sync state for %s: %w", endpoint, err)
 	}
 	return nil
+}
+
+// UpsertLocationPeriods syncs location periods from config into the DB.
+// It inserts new periods and updates existing ones matched by city+start_date.
+func (s *Store) UpsertLocationPeriods(periods []weather.LocationPeriod) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	for _, p := range periods {
+		var id int64
+		err := tx.QueryRow(
+			"SELECT id FROM location_period WHERE city = ? AND start_date = ?",
+			p.City, p.StartDate,
+		).Scan(&id)
+
+		if err == sql.ErrNoRows {
+			_, err = tx.Exec(
+				`INSERT INTO location_period (city, latitude, longitude, timezone, start_date, end_date, synced_at)
+				 VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+				p.City, p.Latitude, p.Longitude, p.Timezone, p.StartDate, nilIfEmpty(p.EndDate),
+			)
+			if err != nil {
+				return fmt.Errorf("inserting location period %s: %w", p.City, err)
+			}
+		} else if err != nil {
+			return fmt.Errorf("querying location period %s: %w", p.City, err)
+		} else {
+			_, err = tx.Exec(
+				`UPDATE location_period SET latitude=?, longitude=?, timezone=?, end_date=?, synced_at=CURRENT_TIMESTAMP WHERE id=?`,
+				p.Latitude, p.Longitude, p.Timezone, nilIfEmpty(p.EndDate), id,
+			)
+			if err != nil {
+				return fmt.Errorf("updating location period %s: %w", p.City, err)
+			}
+		}
+	}
+
+	// Remove location periods not in the current config set.
+	if len(periods) > 0 {
+		// Delete weather data for removed locations first (FK constraint).
+		_, err = tx.Exec(
+			`DELETE FROM daily_weather WHERE location_id IN (
+				SELECT id FROM location_period WHERE (city, start_date) NOT IN (` +
+				placeholders(len(periods), 2) + `))`,
+			cityStartDateArgs(periods)...,
+		)
+		if err != nil {
+			return fmt.Errorf("deleting weather for removed locations: %w", err)
+		}
+		_, err = tx.Exec(
+			`DELETE FROM location_period WHERE (city, start_date) NOT IN (`+
+				placeholders(len(periods), 2)+`)`,
+			cityStartDateArgs(periods)...,
+		)
+		if err != nil {
+			return fmt.Errorf("deleting removed location periods: %w", err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+// placeholders generates n groups of m placeholders: (?,?),(?,?),...
+func placeholders(n, m int) string {
+	group := "(" + strings.Repeat("?,", m-1) + "?)"
+	groups := make([]string, n)
+	for i := range groups {
+		groups[i] = group
+	}
+	return strings.Join(groups, ",")
+}
+
+// cityStartDateArgs returns a flat slice of (city, start_date) pairs for SQL IN.
+func cityStartDateArgs(periods []weather.LocationPeriod) []interface{} {
+	args := make([]interface{}, 0, len(periods)*2)
+	for _, p := range periods {
+		args = append(args, p.City, p.StartDate)
+	}
+	return args
+}
+
+func nilIfEmpty(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// GetLocationPeriods returns all location periods ordered by start_date.
+func (s *Store) GetLocationPeriods() ([]weather.LocationPeriod, error) {
+	rows, err := s.db.Query(
+		"SELECT id, city, latitude, longitude, timezone, start_date, COALESCE(end_date, '') FROM location_period ORDER BY start_date",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("querying location periods: %w", err)
+	}
+	defer rows.Close()
+
+	var periods []weather.LocationPeriod
+	for rows.Next() {
+		var p weather.LocationPeriod
+		if err := rows.Scan(&p.ID, &p.City, &p.Latitude, &p.Longitude, &p.Timezone, &p.StartDate, &p.EndDate); err != nil {
+			return nil, fmt.Errorf("scanning location period: %w", err)
+		}
+		periods = append(periods, p)
+	}
+	return periods, rows.Err()
+}
+
+// GetLocationForDay returns the location period that covers the given day.
+func (s *Store) GetLocationForDay(day string) (*weather.LocationPeriod, error) {
+	var p weather.LocationPeriod
+	err := s.db.QueryRow(
+		`SELECT id, city, latitude, longitude, timezone, start_date, COALESCE(end_date, '')
+		 FROM location_period
+		 WHERE start_date <= ? AND (end_date IS NULL OR end_date >= ?)
+		 ORDER BY start_date DESC LIMIT 1`,
+		day, day,
+	).Scan(&p.ID, &p.City, &p.Latitude, &p.Longitude, &p.Timezone, &p.StartDate, &p.EndDate)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("querying location for day %s: %w", day, err)
+	}
+	return &p, nil
+}
+
+// UpsertWeatherRecords inserts or updates daily weather records for a location.
+func (s *Store) UpsertWeatherRecords(locationID int64, records []weather.DayRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	for _, r := range records {
+		_, err := tx.Exec(
+			`INSERT INTO daily_weather (day, location_id, temperature_max, temperature_min, temperature_mean,
+				apparent_temperature_max, apparent_temperature_min, humidity_mean, dewpoint_mean,
+				precipitation_sum, pressure_mean, wind_speed_max, cloud_cover_mean, sunshine_duration,
+				uv_index_max, weather_code, data, synced_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+			 ON CONFLICT(day, location_id) DO UPDATE SET
+				temperature_max=excluded.temperature_max, temperature_min=excluded.temperature_min,
+				temperature_mean=excluded.temperature_mean, apparent_temperature_max=excluded.apparent_temperature_max,
+				apparent_temperature_min=excluded.apparent_temperature_min, humidity_mean=excluded.humidity_mean,
+				dewpoint_mean=excluded.dewpoint_mean, precipitation_sum=excluded.precipitation_sum,
+				pressure_mean=excluded.pressure_mean, wind_speed_max=excluded.wind_speed_max,
+				cloud_cover_mean=excluded.cloud_cover_mean, sunshine_duration=excluded.sunshine_duration,
+				uv_index_max=excluded.uv_index_max, weather_code=excluded.weather_code,
+				data=excluded.data, synced_at=excluded.synced_at`,
+			r.Day, locationID, r.TemperatureMax, r.TemperatureMin, r.TemperatureMean,
+			r.ApparentTemperatureMax, r.ApparentTemperatureMin, r.HumidityMean, r.DewpointMean,
+			r.PrecipitationSum, r.PressureMean, r.WindSpeedMax, r.CloudCoverMean, r.SunshineDuration,
+			r.UVIndexMax, r.WeatherCode, string(r.RawJSON),
+		)
+		if err != nil {
+			return fmt.Errorf("upserting weather record for %s: %w", r.Day, err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+// GetLastWeatherDay returns the most recent day with weather data for a location.
+// Returns empty string if no data exists.
+func (s *Store) GetLastWeatherDay(locationID int64) (string, error) {
+	var day string
+	err := s.db.QueryRow(
+		"SELECT day FROM daily_weather WHERE location_id = ? ORDER BY day DESC LIMIT 1",
+		locationID,
+	).Scan(&day)
+
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("querying last weather day for location %d: %w", locationID, err)
+	}
+	return day, nil
 }
 

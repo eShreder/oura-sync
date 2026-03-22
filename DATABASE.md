@@ -83,6 +83,50 @@ These tables are:
 | `session`                    | 1 row/session | Guided session (meditation, breathing, etc.)                    |
 | `vo2_max`                    | 1 row/measurement | VO2 max estimate                                           |
 
+---
+
+### `location_period`
+
+Tracks where the user was for weather data correlation. Populated from config file.
+
+| Column       | Type    | Description                              |
+|-------------|---------|------------------------------------------|
+| `id`        | INTEGER | Auto-increment PK                        |
+| `city`      | TEXT    | City name                                |
+| `latitude`  | REAL    | Latitude                                 |
+| `longitude` | REAL    | Longitude                                |
+| `timezone`  | TEXT    | IANA timezone (e.g. `Asia/Ho_Chi_Minh`)  |
+| `start_date`| TEXT    | Start date `YYYY-MM-DD`                  |
+| `end_date`  | TEXT    | End date `YYYY-MM-DD` (NULL = ongoing)   |
+| `synced_at` | TEXT    | Last sync timestamp                      |
+
+---
+
+### `daily_weather`
+
+One row per day per location. Weather data from [Open-Meteo](https://open-meteo.com/).
+
+| Column                     | Type    | Description                              |
+|---------------------------|---------|------------------------------------------|
+| `day`                     | TEXT    | Calendar date `YYYY-MM-DD` (PK part 1)  |
+| `location_id`             | INTEGER | FK to `location_period.id` (PK part 2)  |
+| `temperature_max`         | REAL    | Max temperature °C                       |
+| `temperature_min`         | REAL    | Min temperature °C                       |
+| `temperature_mean`        | REAL    | Mean temperature °C                      |
+| `apparent_temperature_max`| REAL    | Max feels-like °C                        |
+| `apparent_temperature_min`| REAL    | Min feels-like °C                        |
+| `humidity_mean`           | REAL    | Mean relative humidity %                 |
+| `dewpoint_mean`           | REAL    | Mean dewpoint °C                         |
+| `precipitation_sum`       | REAL    | Total precipitation mm                   |
+| `pressure_mean`           | REAL    | Mean sea-level pressure hPa              |
+| `wind_speed_max`          | REAL    | Max wind speed km/h                      |
+| `cloud_cover_mean`        | REAL    | Mean cloud cover %                       |
+| `sunshine_duration`       | REAL    | Sunshine duration seconds                |
+| `uv_index_max`            | REAL    | Max UV index                             |
+| `weather_code`            | INTEGER | WMO weather code                         |
+| `data`                    | JSON    | Full API response for the day            |
+| `synced_at`               | TEXT    | Last sync timestamp                      |
+
 ## Querying
 
 All interesting data lives in the `data` JSON column. Use SQLite JSON functions to extract fields.
@@ -123,6 +167,16 @@ SELECT day, json_extract(data, '$.score') AS readiness
 FROM daily_readiness
 WHERE day >= date('now', '-30 days')
 ORDER BY day;
+
+-- Correlate sleep with weather (pick one location, or use a subquery)
+SELECT ds.day,
+       json_extract(ds.data, '$.score') AS sleep_score,
+       dw.temperature_mean, dw.humidity_mean, dw.pressure_mean
+FROM daily_sleep ds
+JOIN daily_weather dw ON dw.day = ds.day
+JOIN location_period lp ON lp.id = dw.location_id
+  AND ds.day >= lp.start_date AND (lp.end_date IS NULL OR ds.day <= lp.end_date)
+ORDER BY ds.day;
 ```
 
 ## Notes
@@ -131,3 +185,4 @@ ORDER BY day;
 - Some tables may be empty if the user's ring/subscription doesn't support that feature.
 - `heartrate` is the highest-volume table; expect ~200–300 rows per day.
 - Durations in `sleep` are in seconds. Timestamps in `sleep` records include timezone offsets.
+- Weather data requires `locations` configured in YAML. Fetched from Open-Meteo (free, no API key).
