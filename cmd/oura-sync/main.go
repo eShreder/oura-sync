@@ -116,6 +116,15 @@ func run() int {
 }
 
 func runWeatherSync(ctx context.Context, cfg config.Config, st *store.Store, logger *slog.Logger) int {
+	if len(cfg.Locations) == 0 {
+		return 0
+	}
+
+	if err := config.ValidateLocations(cfg.Locations); err != nil {
+		logger.Warn("invalid location config, skipping weather sync", "error", err)
+		return 0
+	}
+
 	// Sort locations by start_date for correct end_date derivation.
 	locs := make([]config.Location, len(cfg.Locations))
 	copy(locs, cfg.Locations)

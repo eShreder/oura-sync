@@ -27,6 +27,35 @@ type Config struct {
 	Locations []Location    `yaml:"locations"`
 }
 
+// ValidateLocations checks that all location entries have the required fields
+// and that values are within valid ranges.
+func ValidateLocations(locs []Location) error {
+	for i, loc := range locs {
+		if loc.City == "" {
+			return fmt.Errorf("location[%d]: city is required", i)
+		}
+		if loc.StartDate == "" {
+			return fmt.Errorf("location[%d] (%s): start_date is required", i, loc.City)
+		}
+		if _, err := time.Parse("2006-01-02", loc.StartDate); err != nil {
+			return fmt.Errorf("location[%d] (%s): invalid start_date %q: must be YYYY-MM-DD", i, loc.City, loc.StartDate)
+		}
+		if loc.Latitude < -90 || loc.Latitude > 90 {
+			return fmt.Errorf("location[%d] (%s): latitude must be between -90 and 90, got %v", i, loc.City, loc.Latitude)
+		}
+		if loc.Longitude < -180 || loc.Longitude > 180 {
+			return fmt.Errorf("location[%d] (%s): longitude must be between -180 and 180, got %v", i, loc.City, loc.Longitude)
+		}
+		if loc.Timezone == "" {
+			return fmt.Errorf("location[%d] (%s): timezone is required", i, loc.City)
+		}
+		if _, err := time.LoadLocation(loc.Timezone); err != nil {
+			return fmt.Errorf("location[%d] (%s): invalid timezone %q", i, loc.City, loc.Timezone)
+		}
+	}
+	return nil
+}
+
 // Defaults returns a Config populated with default values.
 func Defaults() Config {
 	return Config{
