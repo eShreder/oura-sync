@@ -310,8 +310,8 @@ func (s *Store) UpsertLocationPeriods(periods []weather.LocationPeriod) error {
 		// Delete weather data for removed locations first (FK constraint).
 		_, err = tx.Exec(
 			`DELETE FROM daily_weather WHERE location_id IN (
-				SELECT id FROM location_period WHERE (city, start_date) NOT IN (` +
-				placeholders(len(periods), 2) + `))`,
+				SELECT id FROM location_period WHERE (city, start_date) NOT IN (`+
+				placeholders(len(periods), 2)+`))`,
 			cityStartDateArgs(periods)...,
 		)
 		if err != nil {
@@ -324,6 +324,14 @@ func (s *Store) UpsertLocationPeriods(periods []weather.LocationPeriod) error {
 		)
 		if err != nil {
 			return fmt.Errorf("deleting removed location periods: %w", err)
+		}
+	} else {
+		// All locations removed from config: clean up everything.
+		if _, err = tx.Exec(`DELETE FROM daily_weather`); err != nil {
+			return fmt.Errorf("deleting all weather data: %w", err)
+		}
+		if _, err = tx.Exec(`DELETE FROM location_period`); err != nil {
+			return fmt.Errorf("deleting all location periods: %w", err)
 		}
 	}
 

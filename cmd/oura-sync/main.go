@@ -104,7 +104,7 @@ func run() int {
 	printSummary(results)
 
 	// Weather sync (non-blocking: errors are logged as warnings).
-	if !*skipWeather && len(cfg.Locations) > 0 {
+	if !*skipWeather {
 		weatherCount := runWeatherSync(ctx, cfg, st, logger)
 		if weatherCount > 0 {
 			logger.Info("weather sync completed", "records", weatherCount)
@@ -143,6 +143,10 @@ func runWeatherSync(ctx context.Context, cfg config.Config, st *store.Store, log
 
 	if err := st.UpsertLocationPeriods(periods); err != nil {
 		logger.Warn("failed to sync location periods", "error", err)
+		return 0
+	}
+
+	if len(periods) == 0 {
 		return 0
 	}
 
