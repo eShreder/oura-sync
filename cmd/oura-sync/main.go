@@ -117,6 +117,10 @@ func run() int {
 
 func runWeatherSync(ctx context.Context, cfg config.Config, st *store.Store, logger *slog.Logger) int {
 	if len(cfg.Locations) == 0 {
+		// Clean up any previously-synced location data.
+		if err := st.UpsertLocationPeriods(nil); err != nil {
+			logger.Warn("failed to clean location periods", "error", err)
+		}
 		return 0
 	}
 

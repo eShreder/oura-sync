@@ -53,6 +53,17 @@ func ValidateLocations(locs []Location) error {
 			return fmt.Errorf("location[%d] (%s): invalid timezone %q", i, loc.City, loc.Timezone)
 		}
 	}
+
+	// Reject duplicate start_date values — they cause non-deterministic end_date derivation.
+	seen := make(map[string]int, len(locs))
+	for i, loc := range locs {
+		if prev, ok := seen[loc.StartDate]; ok {
+			return fmt.Errorf("location[%d] (%s): duplicate start_date %q (same as location[%d] %s)",
+				i, loc.City, loc.StartDate, prev, locs[prev].City)
+		}
+		seen[loc.StartDate] = i
+	}
+
 	return nil
 }
 
