@@ -238,9 +238,9 @@ func TestSyncAll_FirstRun(t *testing.T) {
 		t.Errorf("personal_info: got %d records, want 1", results["personal_info"])
 	}
 
-	// heartrate should have 1 record.
-	if results["heartrate"] != 1 {
-		t.Errorf("heartrate: got %d records, want 1", results["heartrate"])
+	// heartrate should have records (count depends on chunking).
+	if results["heartrate"] < 1 {
+		t.Errorf("heartrate: got %d records, want >= 1", results["heartrate"])
 	}
 
 	// All endpoints should have their sync state set.
@@ -366,8 +366,8 @@ func TestSyncAll_NotFoundSkipsEndpoint(t *testing.T) {
 	}
 
 	// heartrate (after vo2_max) should still be synced.
-	if results["heartrate"] != 1 {
-		t.Errorf("heartrate: got %d records, want 1 (should sync despite earlier 404)", results["heartrate"])
+	if results["heartrate"] < 1 {
+		t.Errorf("heartrate: got %d records, want >= 1 (should sync despite earlier 404)", results["heartrate"])
 	}
 
 	// vo2_max sync state should NOT be updated.
@@ -395,5 +395,82 @@ func TestSyncAll_APIErrorStopsSync(t *testing.T) {
 	_, err := s.SyncAll(context.Background(), 90)
 	if err == nil {
 		t.Fatal("expected error from API failure, got nil")
+	}
+}
+
+func TestDateChunks_NoLimit(t *testing.T) {
+	chunks := dateChunks("2024-01-01", "2024-03-31", 0)
+	if len(chunks) != 1 {
+		t.Fatalf("got %d chunks, want 1", len(chunks))
+	}
+	if chunks[0][0] != "2024-01-01" || chunks[0][1] != "2024-03-31" {
+		t.Errorf("chunk = %v, want [2024-01-01 2024-03-31]", chunks[0])
+	}
+}
+
+func TestDateChunks_30Days(t *testing.T) {
+	// 90 days should produce 3 chunks of 30.
+	chunks := dateChunks("2024-01-01", "2024-03-31", 30)
+	if len(chunks) != 4 {
+		t.Fatalf("got %d chunks, want 4", len(chunks))
+	}
+	// First chunk: Jan 1 - Jan 30
+	if chunks[0][0] != "2024-01-01" || chunks[0][1] != "2024-01-30" {
+		t.Errorf("chunk[0] = %v, want [2024-01-01 2024-01-30]", chunks[0])
+	}
+	// Second chunk: Jan 31 - Feb 29
+	if chunks[1][0] != "2024-01-31" || chunks[1][1] != "2024-02-29" {
+		t.Errorf("chunk[1] = %v, want [2024-01-31 2024-02-29]", chunks[1])
+	}
+	// Last chunk ends at Mar 31.
+	if chunks[len(chunks)-1][1] != "2024-03-31" {
+		t.Errorf("last chunk end = %s, want 2024-03-31", chunks[len(chunks)-1][1])
+	}
+}
+
+func TestDateChunks_ExactFit(t *testing.T) {
+	// Exactly 30 days = 1 chunk.
+	chunks := dateChunks("2024-01-01", "2024-01-30", 30)
+	if len(chunks) != 1 {
+		t.Fatalf("got %d chunks, want 1", len(chunks))
+	}
+	if chunks[0][0] != "2024-01-01" || chunks[0][1] != "2024-01-30" {
+		t.Errorf("chunk = %v, want [2024-01-01 2024-01-30]", chunks[0])
+	}
+}
+
+func TestDateChunks_SingleDay(t *testing.T) {
+	chunks := dateChunks("2024-01-01", "2024-01-01", 30)
+	if len(chunks) != 1 {
+		t.Fatalf("got %d chunks, want 1", len(chunks))
+	}
+}
+
+func TestSyncEndpoint_Heartrate_Chunked(t *testing.T) {
+	var requestCount atomic.Int32
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount.Add(1)
+		json.NewEncoder(w).Encode(api.PaginatedResponse{
+			Data: []json.RawMessage{
+				json.RawMessage(`{"timestamp":"2024-01-15T10:00:00+00:00","bpm":72,"source":"awake"}`),
+			},
+			NextToken: nil,
+		})
+	})
+
+	client, st, _ := newTestDeps(t, handler)
+	s := NewSyncer(client, st, nil)
+
+	// 60-day range with MaxRangeDays=30 should produce 2 requests.
+	ep := api.Endpoint{Name: "heartrate", Path: "/v2/usercollection/heartrate", UseDatetime: true, MaxRangeDays: 30}
+	count, err := s.SyncEndpoint(context.Background(), ep, "2024-01-01", "2024-03-01")
+	if err != nil {
+		t.Fatalf("SyncEndpoint: %v", err)
+	}
+	if count != 3 {
+		t.Errorf("got %d records, want 3 (1 per chunk)", count)
+	}
+	if requestCount.Load() != 3 {
+		t.Errorf("expected 3 HTTP requests (3 chunks), got %d", requestCount.Load())
 	}
 }
