@@ -12,6 +12,9 @@ type Endpoint struct {
 	// IsSingleton indicates the endpoint returns a single object
 	// without pagination (only personal_info).
 	IsSingleton bool
+	// MaxRangeDays is the maximum date range the API allows per request.
+	// 0 means no limit. Ranges exceeding this are split into chunks.
+	MaxRangeDays int
 }
 
 // Endpoints is the registry of all 18 Oura API v2 endpoints.
@@ -33,7 +36,7 @@ var Endpoints = []Endpoint{
 	{Name: "workout", Path: "/v2/usercollection/workout"},
 	{Name: "session", Path: "/v2/usercollection/session"},
 	{Name: "vo2_max", Path: "/v2/usercollection/vo2_max"},
-	{Name: "heartrate", Path: "/v2/usercollection/heartrate", UseDatetime: true},
+	{Name: "heartrate", Path: "/v2/usercollection/heartrate", UseDatetime: true, MaxRangeDays: 30},
 }
 
 // EndpointByName returns the endpoint with the given name, or nil if not found.

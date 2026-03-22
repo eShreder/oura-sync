@@ -89,9 +89,9 @@ func TestIntegration_FullSyncCycle(t *testing.T) {
 		t.Errorf("personal_info: got %d, want 1", results["personal_info"])
 	}
 
-	// Verify heartrate got 2 records.
-	if results["heartrate"] != 2 {
-		t.Errorf("heartrate: got %d, want 2", results["heartrate"])
+	// Verify heartrate got records (count depends on chunking).
+	if results["heartrate"] < 2 {
+		t.Errorf("heartrate: got %d, want >= 2", results["heartrate"])
 	}
 
 	// Verify standard endpoints got 2 records each.

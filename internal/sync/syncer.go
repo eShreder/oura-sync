@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -42,31 +43,75 @@ func (s *Syncer) SyncEndpoint(ctx context.Context, ep api.Endpoint, startDate, e
 		return s.syncSingleton(ctx, ep)
 	}
 
-	params := url.Values{}
-	if ep.UseDatetime {
-		params.Set("start_datetime", startDate+"T00:00:00+00:00")
-		params.Set("end_datetime", endDate+"T23:59:59+00:00")
-	} else {
-		params.Set("start_date", startDate)
-		params.Set("end_date", endDate)
+	// Split into chunks if the endpoint has a max range limit.
+	chunks := dateChunks(startDate, endDate, ep.MaxRangeDays)
+
+	totalCount := 0
+	for _, chunk := range chunks {
+		if ctx.Err() != nil {
+			return totalCount, ctx.Err()
+		}
+
+		params := url.Values{}
+		if ep.UseDatetime {
+			params.Set("start_datetime", chunk[0]+"T00:00:00+00:00")
+			params.Set("end_datetime", chunk[1]+"T23:59:59+00:00")
+		} else {
+			params.Set("start_date", chunk[0])
+			params.Set("end_date", chunk[1])
+		}
+
+		records, err := s.client.Fetch(ctx, ep.Path, params)
+		if err != nil {
+			return totalCount, fmt.Errorf("fetching %s: %w", ep.Name, err)
+		}
+
+		if len(records) > 0 {
+			if err := s.store.UpsertRecords(ep.Name, records); err != nil {
+				return totalCount, fmt.Errorf("storing %s: %w", ep.Name, err)
+			}
+			totalCount += len(records)
+		}
 	}
 
-	records, err := s.client.Fetch(ctx, ep.Path, params)
-	if err != nil {
-		return 0, fmt.Errorf("fetching %s: %w", ep.Name, err)
-	}
-
-	if len(records) == 0 {
+	if totalCount == 0 {
 		s.logger.Info("no records found", "endpoint", ep.Name)
-		return 0, nil
+	} else {
+		s.logger.Info("synced endpoint", "endpoint", ep.Name, "records", totalCount)
+	}
+	return totalCount, nil
+}
+
+// dateChunks splits a date range into chunks of at most maxDays.
+// If maxDays is 0, returns the full range as a single chunk.
+// Each chunk is a [2]string{start, end} in YYYY-MM-DD format.
+func dateChunks(startDate, endDate string, maxDays int) [][2]string {
+	if maxDays <= 0 {
+		return [][2]string{{startDate, endDate}}
 	}
 
-	if err := s.store.UpsertRecords(ep.Name, records); err != nil {
-		return 0, fmt.Errorf("storing %s: %w", ep.Name, err)
+	start, err := time.Parse("2006-01-02", startDate)
+	if err != nil {
+		return [][2]string{{startDate, endDate}}
+	}
+	end, err := time.Parse("2006-01-02", endDate)
+	if err != nil {
+		return [][2]string{{startDate, endDate}}
 	}
 
-	s.logger.Info("synced endpoint", "endpoint", ep.Name, "records", len(records))
-	return len(records), nil
+	var chunks [][2]string
+	for start.Before(end) || start.Equal(end) {
+		chunkEnd := start.AddDate(0, 0, maxDays-1)
+		if chunkEnd.After(end) {
+			chunkEnd = end
+		}
+		chunks = append(chunks, [2]string{
+			start.Format("2006-01-02"),
+			chunkEnd.Format("2006-01-02"),
+		})
+		start = chunkEnd.AddDate(0, 0, 1)
+	}
+	return chunks
 }
 
 // syncSingleton handles the personal_info endpoint which returns a single object
@@ -126,6 +171,11 @@ func (s *Syncer) SyncAll(ctx context.Context, defaultDays int) (map[string]int, 
 
 		count, err := s.SyncEndpoint(ctx, ep, startDate, endDate)
 		if err != nil {
+			var nfe *api.NotFoundError
+			if errors.As(err, &nfe) {
+				s.logger.Warn("endpoint not available, skipping", "endpoint", ep.Name)
+				continue
+			}
 			return results, fmt.Errorf("syncing %s: %w", ep.Name, err)
 		}
 
