@@ -145,9 +145,9 @@
 - [x] verify edge cases: empty records, invalid JSON, 404 handling still works
 
 ### Task 11: [Final] Update documentation
-- [ ] update README.md with ClickHouse setup instructions and config example
-- [ ] update DATABASE.md with ClickHouse schema details
-- [ ] update `oura-sync.example.yaml` with commented-out `clickhouse` section
+- [x] update README.md with ClickHouse setup instructions and config example
+- [x] update DATABASE.md with ClickHouse schema details
+- [x] update `oura-sync.example.yaml` with commented-out `clickhouse` section
 
 ## Technical Details
 

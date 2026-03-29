@@ -1,6 +1,6 @@
 # oura-sync
 
-Go CLI tool for incrementally syncing all data from the Oura Ring API v2 into a local SQLite database.
+Go CLI tool for incrementally syncing all data from the Oura Ring API v2 into a local SQLite or ClickHouse database.
 
 Designed to run via cron or systemd timer. Each run fetches data since the last sync; the first run performs a full load for a configurable period (default 90 days).
 
@@ -11,6 +11,7 @@ Designed to run via cron or systemd timer. Each run fetches data since the last 
 - Automatic pagination via `next_token`
 - Retry with exponential backoff on 429/5xx errors
 - Pure Go, no CGO — single static binary
+- Dual storage backends: SQLite (default) or ClickHouse
 - Data stored as JSON blobs for forward compatibility with API changes
 - Weather data sync via Open-Meteo API (free, no API key) for biometric–weather correlation
 
@@ -36,6 +37,23 @@ go build -o oura-sync ./cmd/oura-sync/
 | `--skip-weather` | `false` | Skip weather data sync |
 
 The Oura API token must be set via the `OURA_TOKEN` environment variable. Get a Personal Access Token at https://cloud.ouraring.com/personal-access-tokens.
+
+### Storage Backend
+
+By default, oura-sync stores data in a local SQLite database. To use ClickHouse instead, add a `clickhouse` section to your YAML config:
+
+```yaml
+clickhouse:
+  host: "localhost"
+  port: 9000
+  database: "oura"
+  user: "default"
+  password: ""
+```
+
+When the `clickhouse` section is present, SQLite is not used. The `--db` flag is ignored.
+
+ClickHouse uses ReplacingMergeTree engines for all tables, providing deduplication on merge. Reads use `SELECT ... FINAL` to get the latest version of each row. See [DATABASE.md](DATABASE.md) for schema details.
 
 ### Weather / Location Config
 
@@ -86,7 +104,9 @@ Or use a `.env` file (see `.env.example`):
 
 ## Querying Data
 
-Data is stored in SQLite with one table per endpoint. Each record is stored as a JSON blob in the `data` column.
+Data is stored with one table per endpoint. Each record is stored as a JSON blob in the `data` column.
+
+### SQLite
 
 ```sh
 # List tables
@@ -113,6 +133,28 @@ JOIN location_period lp ON lp.id = dw.location_id
 ORDER BY ds.day;
 "
 ```
+
+### ClickHouse
+
+```sql
+-- Recent daily activity scores
+SELECT day, JSONExtractInt(data, 'score') FROM daily_activity FINAL ORDER BY day DESC LIMIT 7;
+
+-- Heart rate data
+SELECT timestamp, bpm, source FROM heartrate FINAL ORDER BY timestamp DESC LIMIT 10;
+
+-- Correlate sleep with weather
+SELECT ds.day,
+       JSONExtractInt(ds.data, 'score') AS sleep_score,
+       dw.temperature_mean, dw.humidity_mean, dw.pressure_mean
+FROM daily_sleep ds FINAL
+JOIN daily_weather dw FINAL ON dw.day = ds.day
+JOIN location_period lp FINAL ON lp.id = dw.location_id
+  AND ds.day >= lp.start_date AND (lp.end_date IS NULL OR ds.day <= lp.end_date)
+ORDER BY ds.day;
+```
+
+Note: ClickHouse queries require `FINAL` after table names to get deduplicated results. Use `JSONExtract*` functions instead of SQLite's `json_extract`.
 
 ## Running Tests
 

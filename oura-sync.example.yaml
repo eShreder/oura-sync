@@ -24,3 +24,12 @@
 #     longitude: 44.8015
 #     timezone: "Asia/Tbilisi"
 #     start_date: "2026-03-13"
+
+# ClickHouse backend (optional). When present, data is stored in ClickHouse
+# instead of SQLite. The --db flag is ignored when this section is active.
+# clickhouse:
+#   host: "localhost"
+#   port: 9000
+#   database: "oura"
+#   user: "default"
+#   password: ""

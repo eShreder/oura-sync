@@ -1,14 +1,28 @@
-# Oura Ring — SQLite Database Schema
+# Oura Ring — Database Schema
 
-SQLite database synced from the [Oura Ring API v2](https://cloud.ouraring.com/v2/docs).
+Database synced from the [Oura Ring API v2](https://cloud.ouraring.com/v2/docs).
 Contains personal health & wellness data: sleep, activity, heart rate, readiness, stress, etc.
+
+Two storage backends are supported: **SQLite** (default) and **ClickHouse**.
 
 ## Conventions
 
 - **JSON storage**: every data table has a `data` column (JSON) with the full API response for that record. Extracted columns (`id`, `day`, `bpm`, etc.) are denormalized for convenient querying.
 - **Dates**: `day` columns use `YYYY-MM-DD` format (local calendar date). `timestamp` uses ISO 8601 with timezone.
 - **Upsert**: records are inserted or replaced by primary key on each sync, so the database always holds the latest version.
-- **`synced_at`**: timestamp of when the row was last written (UTC, `CURRENT_TIMESTAMP`).
+- **`synced_at`**: timestamp of when the row was last written (UTC, `CURRENT_TIMESTAMP` in SQLite, `now()` in ClickHouse).
+
+## Backend Differences
+
+| Aspect | SQLite | ClickHouse |
+|--------|--------|------------|
+| Engine | Standard B-tree tables | ReplacingMergeTree |
+| Upsert | `INSERT OR REPLACE` (ON CONFLICT) | Plain INSERT; dedup at merge time |
+| Reads | Standard SELECT | `SELECT ... FINAL` for deduplicated results |
+| JSON functions | `json_extract(data, '$.field')` | `JSONExtractInt(data, 'field')`, etc. |
+| Location IDs | AUTOINCREMENT | Deterministic FNV-64a hash: `fnv64a(city + "\|" + start_date) >> 1` |
+| Delete | Standard DELETE | Lightweight DELETE (ClickHouse 23.3+) |
+| Column types | TEXT, INTEGER, REAL | String, Int64, Float64, Nullable(...) |
 
 ## Tables
 
@@ -16,10 +30,20 @@ Contains personal health & wellness data: sleep, activity, heart rate, readiness
 
 Tracks the last successful sync time per endpoint. Used to do incremental fetches.
 
+**SQLite:**
+
 | Column      | Type | Description                          |
 |-------------|------|--------------------------------------|
 | `endpoint`  | TEXT | Endpoint name (PK)                   |
 | `last_sync` | TEXT | ISO 8601 / RFC 3339 timestamp        |
+
+**ClickHouse:** `ENGINE = ReplacingMergeTree(updated_at) ORDER BY (endpoint)`
+
+| Column       | Type     | Description                          |
+|-------------|----------|--------------------------------------|
+| `endpoint`  | String   | Endpoint name (ORDER BY key)         |
+| `last_sync` | String   | ISO 8601 / RFC 3339 timestamp        |
+| `updated_at`| DateTime | Version column for dedup (`DEFAULT now()`) |
 
 ---
 
@@ -27,11 +51,21 @@ Tracks the last successful sync time per endpoint. Used to do incremental fetche
 
 Singleton row (always `id = 1`). User profile: age, weight, height, email, biological sex.
 
+**SQLite:**
+
 | Column      | Type    | Description                |
 |-------------|---------|----------------------------|
 | `id`        | INTEGER | Always 1 (PK)             |
 | `data`      | JSON    | Full API response          |
 | `synced_at` | TEXT    | Last sync timestamp        |
+
+**ClickHouse:** `ENGINE = ReplacingMergeTree(synced_at) ORDER BY (id)`
+
+| Column      | Type     | Description                |
+|-------------|----------|----------------------------|
+| `id`        | Int64    | Always 1 (ORDER BY key)   |
+| `data`      | String   | Full API response (JSON)   |
+| `synced_at` | DateTime | Version column (`DEFAULT now()`) |
 
 `data` example fields: `age`, `weight`, `height`, `biological_sex`, `email`.
 
@@ -41,6 +75,8 @@ Singleton row (always `id = 1`). User profile: age, weight, height, email, biolo
 
 Heart rate samples, typically every 5 minutes. High volume (hundreds of rows per day).
 
+**SQLite:**
+
 | Column      | Type    | Description                              |
 |-------------|---------|------------------------------------------|
 | `timestamp` | TEXT    | ISO 8601 with timezone (PK)             |
@@ -49,11 +85,23 @@ Heart rate samples, typically every 5 minutes. High volume (hundreds of rows per
 | `data`      | JSON    | Full API record                          |
 | `synced_at` | TEXT    | Last sync timestamp                      |
 
+**ClickHouse:** `ENGINE = ReplacingMergeTree(synced_at) ORDER BY (timestamp)`
+
+| Column      | Type             | Description                              |
+|-------------|------------------|------------------------------------------|
+| `timestamp` | String           | ISO 8601 with timezone (ORDER BY key)   |
+| `bpm`       | Nullable(Int64)  | Beats per minute                         |
+| `source`    | Nullable(String) | Measurement source                       |
+| `data`      | String           | Full API record (JSON)                   |
+| `synced_at` | DateTime         | Version column (`DEFAULT now()`)         |
+
 ---
 
 ### Standard tables (16 endpoints)
 
-All remaining endpoints share the same schema:
+All remaining endpoints share the same schema.
+
+**SQLite:**
 
 | Column      | Type | Description                              |
 |-------------|------|------------------------------------------|
@@ -61,6 +109,15 @@ All remaining endpoints share the same schema:
 | `day`       | TEXT | Calendar date `YYYY-MM-DD`              |
 | `data`      | JSON | Full API record                          |
 | `synced_at` | TEXT | Last sync timestamp                      |
+
+**ClickHouse:** `ENGINE = ReplacingMergeTree(synced_at) ORDER BY (id)`
+
+| Column      | Type             | Description                              |
+|-------------|------------------|------------------------------------------|
+| `id`        | String           | Oura-assigned UUID (ORDER BY key)       |
+| `day`       | Nullable(String) | Calendar date `YYYY-MM-DD`              |
+| `data`      | String           | Full API record (JSON)                   |
+| `synced_at` | DateTime         | Version column (`DEFAULT now()`)         |
 
 These tables are:
 
@@ -89,6 +146,8 @@ These tables are:
 
 Tracks where the user was for weather data correlation. Populated from config file.
 
+**SQLite:**
+
 | Column       | Type    | Description                              |
 |-------------|---------|------------------------------------------|
 | `id`        | INTEGER | Auto-increment PK                        |
@@ -100,11 +159,26 @@ Tracks where the user was for weather data correlation. Populated from config fi
 | `end_date`  | TEXT    | End date `YYYY-MM-DD` (NULL = ongoing)   |
 | `synced_at` | TEXT    | Last sync timestamp                      |
 
+**ClickHouse:** `ENGINE = ReplacingMergeTree(synced_at) ORDER BY (city, start_date)`
+
+| Column       | Type             | Description                                          |
+|-------------|------------------|------------------------------------------------------|
+| `id`        | Int64            | Deterministic hash: `fnv64a(city+"\|"+start_date) >> 1` |
+| `city`      | String           | City name (ORDER BY key part 1)                      |
+| `latitude`  | Float64          | Latitude                                             |
+| `longitude` | Float64          | Longitude                                            |
+| `timezone`  | String           | IANA timezone                                        |
+| `start_date`| String           | Start date `YYYY-MM-DD` (ORDER BY key part 2)       |
+| `end_date`  | Nullable(String) | End date `YYYY-MM-DD` (NULL = ongoing)               |
+| `synced_at` | DateTime         | Version column (`DEFAULT now()`)                     |
+
 ---
 
 ### `daily_weather`
 
 One row per day per location. Weather data from [Open-Meteo](https://open-meteo.com/).
+
+**SQLite:**
 
 | Column                     | Type    | Description                              |
 |---------------------------|---------|------------------------------------------|
@@ -127,9 +201,36 @@ One row per day per location. Weather data from [Open-Meteo](https://open-meteo.
 | `data`                    | JSON    | Full API response for the day            |
 | `synced_at`               | TEXT    | Last sync timestamp                      |
 
+**ClickHouse:** `ENGINE = ReplacingMergeTree(synced_at) ORDER BY (day, location_id)`
+
+| Column                     | Type              | Description                              |
+|---------------------------|-------------------|------------------------------------------|
+| `day`                     | String            | Calendar date `YYYY-MM-DD` (ORDER BY key part 1) |
+| `location_id`             | Int64             | Reference to `location_period.id` (ORDER BY key part 2) |
+| `temperature_max`         | Nullable(Float64) | Max temperature °C                       |
+| `temperature_min`         | Nullable(Float64) | Min temperature °C                       |
+| `temperature_mean`        | Nullable(Float64) | Mean temperature °C                      |
+| `apparent_temperature_max`| Nullable(Float64) | Max feels-like °C                        |
+| `apparent_temperature_min`| Nullable(Float64) | Min feels-like °C                        |
+| `humidity_mean`           | Nullable(Float64) | Mean relative humidity %                 |
+| `dewpoint_mean`           | Nullable(Float64) | Mean dewpoint °C                         |
+| `precipitation_sum`       | Nullable(Float64) | Total precipitation mm                   |
+| `pressure_mean`           | Nullable(Float64) | Mean sea-level pressure hPa              |
+| `wind_speed_max`          | Nullable(Float64) | Max wind speed km/h                      |
+| `cloud_cover_mean`        | Nullable(Float64) | Mean cloud cover %                       |
+| `sunshine_duration`       | Nullable(Float64) | Sunshine duration seconds                |
+| `uv_index_max`            | Nullable(Float64) | Max UV index                             |
+| `weather_code`            | Nullable(Int64)   | WMO weather code                         |
+| `data`                    | String            | Full API response (JSON)                 |
+| `synced_at`               | DateTime          | Version column (`DEFAULT now()`)         |
+
 ## Querying
 
-All interesting data lives in the `data` JSON column. Use SQLite JSON functions to extract fields.
+All interesting data lives in the `data` JSON column.
+
+### SQLite
+
+Use SQLite JSON functions to extract fields.
 
 ```sql
 -- Last 7 days of sleep scores
@@ -168,13 +269,49 @@ FROM daily_readiness
 WHERE day >= date('now', '-30 days')
 ORDER BY day;
 
--- Correlate sleep with weather (pick one location, or use a subquery)
+-- Correlate sleep with weather
 SELECT ds.day,
        json_extract(ds.data, '$.score') AS sleep_score,
        dw.temperature_mean, dw.humidity_mean, dw.pressure_mean
 FROM daily_sleep ds
 JOIN daily_weather dw ON dw.day = ds.day
 JOIN location_period lp ON lp.id = dw.location_id
+  AND ds.day >= lp.start_date AND (lp.end_date IS NULL OR ds.day <= lp.end_date)
+ORDER BY ds.day;
+```
+
+### ClickHouse
+
+Use `FINAL` after table names and ClickHouse JSON functions.
+
+```sql
+-- Last 7 days of sleep scores
+SELECT day, JSONExtractInt(data, 'score') AS score
+FROM daily_sleep FINAL
+WHERE day >= toString(today() - 7)
+ORDER BY day;
+
+-- Average resting heart rate by day
+SELECT toDate(timestamp) AS day, round(avg(bpm)) AS avg_bpm
+FROM heartrate FINAL
+WHERE source = 'rest'
+GROUP BY day
+ORDER BY day DESC
+LIMIT 14;
+
+-- Daily steps
+SELECT day, JSONExtractInt(data, 'steps') AS steps
+FROM daily_activity FINAL
+ORDER BY day DESC
+LIMIT 30;
+
+-- Correlate sleep with weather
+SELECT ds.day,
+       JSONExtractInt(ds.data, 'score') AS sleep_score,
+       dw.temperature_mean, dw.humidity_mean, dw.pressure_mean
+FROM daily_sleep ds FINAL
+JOIN daily_weather dw FINAL ON dw.day = ds.day
+JOIN location_period lp FINAL ON lp.id = dw.location_id
   AND ds.day >= lp.start_date AND (lp.end_date IS NULL OR ds.day <= lp.end_date)
 ORDER BY ds.day;
 ```
