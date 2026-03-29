@@ -64,7 +64,7 @@ func TestIntegration_FullSyncCycle(t *testing.T) {
 	dbPath := filepath.Join(tmpDir, "test-oura.db")
 
 	// Initialize components.
-	st, err := store.New(dbPath)
+	st, err := store.NewSQLiteStore(dbPath)
 	if err != nil {
 		t.Fatalf("creating store: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestIntegration_WithPagination(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	st, err := store.New(":memory:")
+	st, err := store.NewSQLiteStore(":memory:")
 	if err != nil {
 		t.Fatalf("creating store: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestIntegration_ContextCancellation(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	st, err := store.New(":memory:")
+	st, err := store.NewSQLiteStore(":memory:")
 	if err != nil {
 		t.Fatalf("creating store: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestIntegration_WeatherSync(t *testing.T) {
 	}))
 	defer weatherSrv.Close()
 
-	st, err := store.New(":memory:")
+	st, err := store.NewSQLiteStore(":memory:")
 	if err != nil {
 		t.Fatalf("creating store: %v", err)
 	}

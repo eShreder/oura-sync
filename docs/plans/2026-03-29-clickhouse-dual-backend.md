@@ -66,12 +66,12 @@
 - [x] run tests — `go test ./internal/store/...` must pass
 
 ### Task 2: Update consumers to use Store interface
-- [ ] update `internal/sync/syncer.go`: change `store *store.Store` field and `NewSyncer` param to `store store.Store`
-- [ ] update `cmd/oura-sync/main.go`: change `runWeatherSync` param from `*store.Store` to `store.Store`
-- [ ] remove `_ "modernc.org/sqlite"` import from `main.go` (already imported in `sqlite.go`)
-- [ ] verify `weather.Store` interface is still satisfied (it's a subset of `store.Store`)
-- [ ] run tests — `go test ./...` must all pass
-- [ ] run `go build ./...` to verify compilation
+- [x] update `internal/sync/syncer.go`: change `store *store.Store` field and `NewSyncer` param to `store store.Store`
+- [x] update `cmd/oura-sync/main.go`: change `runWeatherSync` param from `*store.Store` to `store.Store`
+- [x] remove `_ "modernc.org/sqlite"` import from `main.go` (already imported in `sqlite.go`)
+- [x] verify `weather.Store` interface is still satisfied (it's a subset of `store.Store`)
+- [x] run tests — `go test ./...` must all pass
+- [x] run `go build ./...` to verify compilation
 
 ### Task 3: Add ClickHouse config
 - [ ] add `ClickHouse` struct to `internal/config/config.go` with fields: `Host`, `Port`, `Database`, `User`, `Password`

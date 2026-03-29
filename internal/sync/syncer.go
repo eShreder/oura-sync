@@ -15,15 +15,15 @@ import (
 	"github.com/user/oura-sync/internal/store"
 )
 
-// Syncer orchestrates incremental sync of all Oura API endpoints into SQLite.
+// Syncer orchestrates incremental sync of all Oura API endpoints.
 type Syncer struct {
 	client *api.Client
-	store  *store.Store
+	store  store.Store
 	logger *slog.Logger
 }
 
 // NewSyncer creates a new Syncer.
-func NewSyncer(client *api.Client, store *store.Store, logger *slog.Logger) *Syncer {
+func NewSyncer(client *api.Client, store store.Store, logger *slog.Logger) *Syncer {
 	if logger == nil {
 		logger = slog.Default()
 	}

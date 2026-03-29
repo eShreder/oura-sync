@@ -14,14 +14,14 @@ import (
 )
 
 // newTestDeps sets up a mock HTTP server, API client, and in-memory store for testing.
-func newTestDeps(t *testing.T, handler http.Handler) (*api.Client, *store.Store, *httptest.Server) {
+func newTestDeps(t *testing.T, handler http.Handler) (*api.Client, store.Store, *httptest.Server) {
 	t.Helper()
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 
 	client := api.NewClient("test-token", srv.URL)
 
-	st, err := store.New(":memory:")
+	st, err := store.NewSQLiteStore(":memory:")
 	if err != nil {
 		t.Fatalf("creating test store: %v", err)
 	}

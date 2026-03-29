@@ -16,8 +16,6 @@ import (
 	"github.com/user/oura-sync/internal/store"
 	"github.com/user/oura-sync/internal/sync"
 	"github.com/user/oura-sync/internal/weather"
-
-	_ "modernc.org/sqlite"
 )
 
 func main() {
@@ -63,7 +61,7 @@ func run() int {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	// Open store.
-	st, err := store.New(cfg.DB)
+	st, err := store.NewSQLiteStore(cfg.DB)
 	if err != nil {
 		logger.Error("failed to open database", "path", cfg.DB, "error", err)
 		return 1
@@ -115,7 +113,7 @@ func run() int {
 	return 0
 }
 
-func runWeatherSync(ctx context.Context, cfg config.Config, st *store.Store, logger *slog.Logger) int {
+func runWeatherSync(ctx context.Context, cfg config.Config, st store.Store, logger *slog.Logger) int {
 	if len(cfg.Locations) == 0 {
 		// Clean up any previously-synced location data.
 		if err := st.UpsertLocationPeriods(nil); err != nil {
