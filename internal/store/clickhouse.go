@@ -241,30 +241,42 @@ func (s *ClickHouseStore) UpsertRecords(ctx context.Context, endpointName string
 		return fmt.Errorf("invalid endpoint name: %q", endpointName)
 	}
 
+	switch endpointName {
+	case "personal_info":
+		return s.upsertPersonalInfoBatch(ctx, records)
+	case "heartrate":
+		return s.upsertHeartrateBatch(ctx, records)
+	default:
+		return s.upsertDefaultBatch(ctx, endpointName, records)
+	}
+}
+
+func (s *ClickHouseStore) upsertPersonalInfoBatch(ctx context.Context, records []json.RawMessage) error {
+	batch, err := s.conn.PrepareBatch(ctx, "INSERT INTO personal_info (id, data)")
+	if err != nil {
+		return fmt.Errorf("preparing personal_info batch: %w", err)
+	}
 	for _, raw := range records {
-		if err := s.upsertOne(ctx, endpointName, raw); err != nil {
-			return err
+		if err := batch.Append(int64(1), string(raw)); err != nil {
+			return fmt.Errorf("appending personal_info record: %w", err)
 		}
+	}
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("sending personal_info batch: %w", err)
 	}
 	return nil
 }
 
-func (s *ClickHouseStore) upsertOne(ctx context.Context, endpointName string, raw json.RawMessage) error {
-	switch endpointName {
-	case "personal_info":
-		err := s.conn.Exec(ctx,
-			"INSERT INTO personal_info (id, data) VALUES (1, ?)",
-			string(raw),
-		)
-		if err != nil {
-			return fmt.Errorf("upserting personal_info: %w", err)
-		}
-
-	case "heartrate":
+func (s *ClickHouseStore) upsertHeartrateBatch(ctx context.Context, records []json.RawMessage) error {
+	batch, err := s.conn.PrepareBatch(ctx, "INSERT INTO heartrate (timestamp, bpm, source, data)")
+	if err != nil {
+		return fmt.Errorf("preparing heartrate batch: %w", err)
+	}
+	for _, raw := range records {
 		var rec struct {
 			Timestamp string `json:"timestamp"`
 			BPM       *int   `json:"bpm"`
-			Source    string `json:"source"`
+			Source     string `json:"source"`
 		}
 		if err := json.Unmarshal(raw, &rec); err != nil {
 			return fmt.Errorf("parsing heartrate record: %w", err)
@@ -277,15 +289,22 @@ func (s *ClickHouseStore) upsertOne(ctx context.Context, endpointName string, ra
 			v := int64(*rec.BPM)
 			bpm = &v
 		}
-		err := s.conn.Exec(ctx,
-			"INSERT INTO heartrate (timestamp, bpm, source, data) VALUES (?, ?, ?, ?)",
-			rec.Timestamp, bpm, &rec.Source, string(raw),
-		)
-		if err != nil {
-			return fmt.Errorf("upserting heartrate record: %w", err)
+		if err := batch.Append(rec.Timestamp, bpm, &rec.Source, string(raw)); err != nil {
+			return fmt.Errorf("appending heartrate record: %w", err)
 		}
+	}
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("sending heartrate batch: %w", err)
+	}
+	return nil
+}
 
-	default:
+func (s *ClickHouseStore) upsertDefaultBatch(ctx context.Context, endpointName string, records []json.RawMessage) error {
+	batch, err := s.conn.PrepareBatch(ctx, fmt.Sprintf("INSERT INTO %s (id, day, data)", endpointName))
+	if err != nil {
+		return fmt.Errorf("preparing %s batch: %w", endpointName, err)
+	}
+	for _, raw := range records {
 		var rec struct {
 			ID  string `json:"id"`
 			Day string `json:"day"`
@@ -296,13 +315,12 @@ func (s *ClickHouseStore) upsertOne(ctx context.Context, endpointName string, ra
 		if rec.ID == "" {
 			return fmt.Errorf("%s record missing id field", endpointName)
 		}
-		err := s.conn.Exec(ctx,
-			fmt.Sprintf("INSERT INTO %s (id, day, data) VALUES (?, ?, ?)", endpointName),
-			rec.ID, &rec.Day, string(raw),
-		)
-		if err != nil {
-			return fmt.Errorf("upserting %s record: %w", endpointName, err)
+		if err := batch.Append(rec.ID, &rec.Day, string(raw)); err != nil {
+			return fmt.Errorf("appending %s record: %w", endpointName, err)
 		}
+	}
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("sending %s batch: %w", endpointName, err)
 	}
 	return nil
 }
@@ -463,26 +481,31 @@ func (s *ClickHouseStore) UpsertWeatherRecords(ctx context.Context, locationID i
 		return nil
 	}
 
+	batch, err := s.conn.PrepareBatch(ctx,
+		`INSERT INTO daily_weather (day, location_id, temperature_max, temperature_min, temperature_mean,
+			apparent_temperature_max, apparent_temperature_min, humidity_mean, dewpoint_mean,
+			precipitation_sum, pressure_mean, wind_speed_max, cloud_cover_mean, sunshine_duration,
+			uv_index_max, weather_code, data)`)
+	if err != nil {
+		return fmt.Errorf("preparing weather batch: %w", err)
+	}
 	for _, r := range records {
 		var weatherCode *int64
 		if r.WeatherCode != nil {
 			v := int64(*r.WeatherCode)
 			weatherCode = &v
 		}
-		err := s.conn.Exec(ctx,
-			`INSERT INTO daily_weather (day, location_id, temperature_max, temperature_min, temperature_mean,
-				apparent_temperature_max, apparent_temperature_min, humidity_mean, dewpoint_mean,
-				precipitation_sum, pressure_mean, wind_speed_max, cloud_cover_mean, sunshine_duration,
-				uv_index_max, weather_code, data)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		if err := batch.Append(
 			r.Day, locationID, r.TemperatureMax, r.TemperatureMin, r.TemperatureMean,
 			r.ApparentTemperatureMax, r.ApparentTemperatureMin, r.HumidityMean, r.DewpointMean,
 			r.PrecipitationSum, r.PressureMean, r.WindSpeedMax, r.CloudCoverMean, r.SunshineDuration,
 			r.UVIndexMax, weatherCode, string(r.RawJSON),
-		)
-		if err != nil {
-			return fmt.Errorf("upserting weather record for %s: %w", r.Day, err)
+		); err != nil {
+			return fmt.Errorf("appending weather record for %s: %w", r.Day, err)
 		}
+	}
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("sending weather batch: %w", err)
 	}
 	return nil
 }

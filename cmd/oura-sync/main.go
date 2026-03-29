@@ -46,7 +46,8 @@ func run() int {
 
 	// Merge: CLI flags > env vars > config file > defaults.
 	cfg = config.Merge(cfg, config.EnvVars{
-		Token: os.Getenv("OURA_TOKEN"),
+		Token:              os.Getenv("OURA_TOKEN"),
+		ClickHousePassword: os.Getenv("CLICKHOUSE_PASSWORD"),
 	}, config.FlagVals{
 		DB:      *dbPath,
 		Days:    *days,

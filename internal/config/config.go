@@ -117,6 +117,9 @@ func Merge(cfg Config, env EnvVars, flags FlagVals, flagSet map[string]bool) Con
 	if env.Token != "" {
 		cfg.Token = env.Token
 	}
+	if env.ClickHousePassword != "" && cfg.ClickHouse != nil {
+		cfg.ClickHouse.Password = env.ClickHousePassword
+	}
 
 	// CLI flags override everything.
 	if flagSet["db"] {
@@ -134,7 +137,8 @@ func Merge(cfg Config, env EnvVars, flags FlagVals, flagSet map[string]bool) Con
 
 // EnvVars holds values read from environment variables.
 type EnvVars struct {
-	Token string
+	Token              string
+	ClickHousePassword string
 }
 
 // FlagVals holds values read from CLI flags.
