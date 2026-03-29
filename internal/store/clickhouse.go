@@ -27,8 +27,18 @@ var _ Store = (*ClickHouseStore)(nil)
 // NewClickHouseStore creates a new ClickHouseStore connected to the given ClickHouse instance.
 // The provided context bounds the connection ping and schema migration.
 func NewClickHouseStore(ctx context.Context, cfg *config.ClickHouse) (*ClickHouseStore, error) {
+	if cfg.Host == "" {
+		return nil, fmt.Errorf("clickhouse host is required")
+	}
+	if cfg.Database == "" {
+		return nil, fmt.Errorf("clickhouse database is required")
+	}
+	port := cfg.Port
+	if port == 0 {
+		port = 9000
+	}
 	opts := &clickhouse.Options{
-		Addr: []string{fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)},
+		Addr: []string{fmt.Sprintf("%s:%d", cfg.Host, port)},
 		Auth: clickhouse.Auth{
 			Database: cfg.Database,
 			Username: cfg.User,
