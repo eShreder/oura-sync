@@ -118,15 +118,15 @@
 - [x] run tests — must pass
 
 ### Task 8: Implement ClickHouseStore — location and weather methods
-- [ ] implement `UpsertLocationPeriods(periods)` with deterministic ID: `fnv64a(city + "|" + start_date) >> 1`
-- [ ] implement cleanup of stale location periods using lightweight DELETE
-- [ ] implement `GetLocationPeriods()` using `SELECT ... FINAL ORDER BY start_date`
-- [ ] implement `GetLocationForDay(day)` using `SELECT ... FINAL` with date range filter
-- [ ] implement `UpsertWeatherRecords(locationID, records)` with extracted columns
-- [ ] implement `GetLastWeatherDay(locationID)` using `SELECT ... FINAL`
-- [ ] write tests for all location period methods (insert, update, cleanup)
-- [ ] write tests for weather record methods (insert, retrieval, last day)
-- [ ] run tests — must pass
+- [x] implement `UpsertLocationPeriods(periods)` with deterministic ID: `fnv64a(city + "|" + start_date) >> 1`
+- [x] implement cleanup of stale location periods using lightweight DELETE
+- [x] implement `GetLocationPeriods()` using `SELECT ... FINAL ORDER BY start_date`
+- [x] implement `GetLocationForDay(day)` using `SELECT ... FINAL` with date range filter
+- [x] implement `UpsertWeatherRecords(locationID, records)` with extracted columns
+- [x] implement `GetLastWeatherDay(locationID)` using `SELECT ... FINAL`
+- [x] write tests for all location period methods (insert, update, cleanup)
+- [x] write tests for weather record methods (insert, retrieval, last day)
+- [x] run tests — must pass
 
 ### Task 9: Shared test helpers for both backends
 - [ ] create `internal/store/store_test.go` with shared test runner accepting `Store` interface
