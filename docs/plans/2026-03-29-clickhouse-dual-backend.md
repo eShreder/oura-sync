@@ -86,10 +86,10 @@
 - [x] run `go build ./...` to verify compilation (ClickHouse store will exist as stub)
 
 ### Task 5: Add ClickHouse dependency
-- [ ] run `go get github.com/ClickHouse/clickhouse-go/v2`
-- [ ] run `go get github.com/testcontainers/testcontainers-go`
-- [ ] run `go get github.com/testcontainers/testcontainers-go/modules/clickhouse`
-- [ ] run `go mod tidy`
+- [x] run `go get github.com/ClickHouse/clickhouse-go/v2`
+- [x] run `go get github.com/testcontainers/testcontainers-go`
+- [x] run `go get github.com/testcontainers/testcontainers-go/modules/clickhouse`
+- [x] run `go mod tidy`
 
 ### Task 6: Implement ClickHouseStore — connection and migrations
 - [ ] create `internal/store/clickhouse.go` with `ClickHouseStore` struct
