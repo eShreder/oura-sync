@@ -634,8 +634,13 @@ func TestGetLocationForDay(t *testing.T) {
 	}
 }
 
-func ptrF(f float64) *float64 { return &f }
-func ptrI(i int) *int         { return &i }
+// TestShared_SQLite runs the shared Store interface tests against SQLiteStore.
+func TestShared_SQLite(t *testing.T) {
+	runSharedStoreTests(t, func(t *testing.T) Store {
+		t.Helper()
+		return newTestStore(t)
+	})
+}
 
 func TestUpsertWeatherRecords_InsertAndUpdate(t *testing.T) {
 	s := newTestStore(t)

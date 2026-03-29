@@ -57,6 +57,43 @@ func startClickHouseContainer(t *testing.T) *config.ClickHouse {
 	}
 }
 
+// truncateAllTables clears all data from a ClickHouseStore's tables.
+func truncateAllTables(t *testing.T, s *ClickHouseStore) {
+	t.Helper()
+	ctx := context.Background()
+	tables := []string{"sync_state", "location_period", "daily_weather"}
+	for _, ep := range api.Endpoints {
+		tables = append(tables, ep.Name)
+	}
+	for _, table := range tables {
+		if err := s.conn.Exec(ctx, fmt.Sprintf("TRUNCATE TABLE %s", table)); err != nil {
+			t.Fatalf("truncating %s: %v", table, err)
+		}
+	}
+}
+
+// TestShared_ClickHouse runs the shared Store interface tests against ClickHouseStore.
+func TestShared_ClickHouse(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	cfg := startClickHouseContainer(t)
+
+	// Create one store to run migrations, then reuse the connection.
+	baseStore, err := NewClickHouseStore(cfg)
+	if err != nil {
+		t.Fatalf("NewClickHouseStore: %v", err)
+	}
+	t.Cleanup(func() { baseStore.Close() })
+
+	runSharedStoreTests(t, func(t *testing.T) Store {
+		t.Helper()
+		truncateAllTables(t, baseStore)
+		return baseStore
+	})
+}
+
 func TestClickHouseStore_ConnectAndMigrate(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")

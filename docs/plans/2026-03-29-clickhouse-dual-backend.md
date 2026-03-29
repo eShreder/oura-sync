@@ -129,11 +129,11 @@
 - [x] run tests — must pass
 
 ### Task 9: Shared test helpers for both backends
-- [ ] create `internal/store/store_test.go` with shared test runner accepting `Store` interface
-- [ ] extract common test scenarios from `sqlite_test.go` into shared helpers
-- [ ] run shared tests against both SQLiteStore (in-memory) and ClickHouseStore (testcontainers)
-- [ ] keep SQLite-specific tests (e.g., sqlite_master queries) in `sqlite_test.go`
-- [ ] run full test suite — `go test ./...` must pass
+- [x] create `internal/store/store_test.go` with shared test runner accepting `Store` interface
+- [x] extract common test scenarios from `sqlite_test.go` into shared helpers
+- [x] run shared tests against both SQLiteStore (in-memory) and ClickHouseStore (testcontainers)
+- [x] keep SQLite-specific tests (e.g., sqlite_master queries) in `sqlite_test.go`
+- [x] run full test suite — `go test ./...` must pass
 
 ### Task 10: Verify acceptance criteria
 - [ ] verify all Store interface methods implemented for both backends
