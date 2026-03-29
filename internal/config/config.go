@@ -18,13 +18,23 @@ type Location struct {
 	StartDate string  `yaml:"start_date"`
 }
 
+// ClickHouse holds connection settings for a ClickHouse backend.
+type ClickHouse struct {
+	Host     string `yaml:"host"`
+	Port     int    `yaml:"port"`
+	Database string `yaml:"database"`
+	User     string `yaml:"user"`
+	Password string `yaml:"password"`
+}
+
 // Config holds all application settings.
 type Config struct {
-	Token     string        `yaml:"token"`
-	DB        string        `yaml:"db"`
-	Days      int           `yaml:"days"`
-	Timeout   time.Duration `yaml:"timeout"`
-	Locations []Location    `yaml:"locations"`
+	Token      string        `yaml:"token"`
+	DB         string        `yaml:"db"`
+	Days       int           `yaml:"days"`
+	Timeout    time.Duration `yaml:"timeout"`
+	Locations  []Location    `yaml:"locations"`
+	ClickHouse *ClickHouse   `yaml:"clickhouse"`
 }
 
 // ValidateLocations checks that all location entries have the required fields

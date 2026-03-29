@@ -74,10 +74,10 @@
 - [x] run `go build ./...` to verify compilation
 
 ### Task 3: Add ClickHouse config
-- [ ] add `ClickHouse` struct to `internal/config/config.go` with fields: `Host`, `Port`, `Database`, `User`, `Password`
-- [ ] add `ClickHouse *ClickHouse` field to `Config` struct (nil means SQLite)
-- [ ] write tests for config loading with `clickhouse` section present and absent
-- [ ] run tests — `go test ./internal/config/...` must pass
+- [x] add `ClickHouse` struct to `internal/config/config.go` with fields: `Host`, `Port`, `Database`, `User`, `Password`
+- [x] add `ClickHouse *ClickHouse` field to `Config` struct (nil means SQLite)
+- [x] write tests for config loading with `clickhouse` section present and absent
+- [x] run tests — `go test ./internal/config/...` must pass
 
 ### Task 4: Add backend selection in main.go
 - [ ] add logic in `cmd/oura-sync/main.go` to choose backend based on `cfg.ClickHouse != nil`
