@@ -92,19 +92,19 @@
 - [x] run `go mod tidy`
 
 ### Task 6: Implement ClickHouseStore — connection and migrations
-- [ ] create `internal/store/clickhouse.go` with `ClickHouseStore` struct
-- [ ] implement `NewClickHouseStore(cfg)` — connect via `clickhouse-go/v2`, run migrations
-- [ ] implement `Close()` method
-- [ ] implement table creation with `ReplacingMergeTree` engines:
+- [x] create `internal/store/clickhouse.go` with `ClickHouseStore` struct
+- [x] implement `NewClickHouseStore(cfg)` — connect via `clickhouse-go/v2`, run migrations
+- [x] implement `Close()` method
+- [x] implement table creation with `ReplacingMergeTree` engines:
   - `sync_state`: `ENGINE = ReplacingMergeTree(updated_at) ORDER BY (endpoint)`
   - `personal_info`: `ENGINE = ReplacingMergeTree(synced_at) ORDER BY (id)`
   - `heartrate`: `ENGINE = ReplacingMergeTree(synced_at) ORDER BY (timestamp)`
   - standard endpoints: `ENGINE = ReplacingMergeTree(synced_at) ORDER BY (id)`
   - `location_period`: `ENGINE = ReplacingMergeTree(synced_at) ORDER BY (city, start_date)`
   - `daily_weather`: `ENGINE = ReplacingMergeTree(synced_at) ORDER BY (day, location_id)`
-- [ ] add compile-time check `var _ Store = (*ClickHouseStore)(nil)`
-- [ ] write testcontainers-based test for connection and table creation
-- [ ] run tests — must pass
+- [x] add compile-time check `var _ Store = (*ClickHouseStore)(nil)`
+- [x] write testcontainers-based test for connection and table creation
+- [x] run tests — must pass
 
 ### Task 7: Implement ClickHouseStore — sync state and record upserts
 - [ ] implement `GetLastSync(endpoint)` using `SELECT ... FINAL`
