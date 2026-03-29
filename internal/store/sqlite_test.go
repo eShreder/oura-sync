@@ -9,9 +9,9 @@ import (
 	"github.com/user/oura-sync/internal/weather"
 )
 
-func newTestStore(t *testing.T) *Store {
+func newTestStore(t *testing.T) *SQLiteStore {
 	t.Helper()
-	s, err := New(":memory:")
+	s, err := NewSQLiteStore(":memory:")
 	if err != nil {
 		t.Fatalf("creating test store: %v", err)
 	}

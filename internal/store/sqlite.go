@@ -14,13 +14,15 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// Store wraps a SQLite database for persisting Oura API data.
-type Store struct {
+var _ Store = (*SQLiteStore)(nil)
+
+// SQLiteStore wraps a SQLite database for persisting Oura API data.
+type SQLiteStore struct {
 	db *sql.DB
 }
 
-// New opens (or creates) a SQLite database at dbPath and runs schema migrations.
-func New(dbPath string) (*Store, error) {
+// NewSQLiteStore opens (or creates) a SQLite database at dbPath and runs schema migrations.
+func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %w", err)
@@ -42,7 +44,7 @@ func New(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("enabling foreign keys: %w", err)
 	}
 
-	s := &Store{db: db}
+	s := &SQLiteStore{db: db}
 	if err := s.migrate(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("running migrations: %w", err)
@@ -52,12 +54,12 @@ func New(dbPath string) (*Store, error) {
 }
 
 // Close closes the underlying database connection.
-func (s *Store) Close() error {
+func (s *SQLiteStore) Close() error {
 	return s.db.Close()
 }
 
 // migrate creates all required tables based on the endpoint registry.
-func (s *Store) migrate() error {
+func (s *SQLiteStore) migrate() error {
 	// Create sync_state table.
 	if _, err := s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS sync_state (
@@ -206,7 +208,7 @@ var validEndpointName = regexp.MustCompile(`^[a-z0-9_]+$`)
 //   - personal_info: singleton row with id=1
 //   - heartrate: uses "timestamp" field as PK, also extracts bpm and source
 //   - all others: uses "id" field as PK, also extracts "day" field
-func (s *Store) UpsertRecords(endpointName string, records []json.RawMessage) error {
+func (s *SQLiteStore) UpsertRecords(endpointName string, records []json.RawMessage) error {
 	if len(records) == 0 {
 		return nil
 	}
@@ -230,7 +232,7 @@ func (s *Store) UpsertRecords(endpointName string, records []json.RawMessage) er
 	return tx.Commit()
 }
 
-func (s *Store) upsertOne(tx *sql.Tx, endpointName string, raw json.RawMessage) error {
+func (s *SQLiteStore) upsertOne(tx *sql.Tx, endpointName string, raw json.RawMessage) error {
 	switch endpointName {
 	case "personal_info":
 		_, err := tx.Exec(
@@ -293,7 +295,7 @@ func (s *Store) upsertOne(tx *sql.Tx, endpointName string, raw json.RawMessage) 
 
 // GetLastSync returns the last sync time for the given endpoint.
 // If the endpoint has never been synced, it returns the zero time and nil error.
-func (s *Store) GetLastSync(endpoint string) (time.Time, error) {
+func (s *SQLiteStore) GetLastSync(endpoint string) (time.Time, error) {
 	var lastSync string
 	err := s.db.QueryRow(
 		"SELECT last_sync FROM sync_state WHERE endpoint = ?",
@@ -316,7 +318,7 @@ func (s *Store) GetLastSync(endpoint string) (time.Time, error) {
 }
 
 // SetLastSync updates the last sync time for the given endpoint.
-func (s *Store) SetLastSync(endpoint string, t time.Time) error {
+func (s *SQLiteStore) SetLastSync(endpoint string, t time.Time) error {
 	_, err := s.db.Exec(
 		`INSERT INTO sync_state (endpoint, last_sync) VALUES (?, ?)
 		 ON CONFLICT(endpoint) DO UPDATE SET last_sync=excluded.last_sync`,
@@ -330,7 +332,7 @@ func (s *Store) SetLastSync(endpoint string, t time.Time) error {
 
 // UpsertLocationPeriods syncs location periods from config into the DB.
 // It inserts new periods and updates existing ones matched by city+start_date.
-func (s *Store) UpsertLocationPeriods(periods []weather.LocationPeriod) error {
+func (s *SQLiteStore) UpsertLocationPeriods(periods []weather.LocationPeriod) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("beginning transaction: %w", err)
@@ -444,7 +446,7 @@ func nilIfEmpty(s string) interface{} {
 }
 
 // GetLocationPeriods returns all location periods ordered by start_date.
-func (s *Store) GetLocationPeriods() ([]weather.LocationPeriod, error) {
+func (s *SQLiteStore) GetLocationPeriods() ([]weather.LocationPeriod, error) {
 	rows, err := s.db.Query(
 		"SELECT id, city, latitude, longitude, timezone, start_date, COALESCE(end_date, '') FROM location_period ORDER BY start_date",
 	)
@@ -465,7 +467,7 @@ func (s *Store) GetLocationPeriods() ([]weather.LocationPeriod, error) {
 }
 
 // GetLocationForDay returns the location period that covers the given day.
-func (s *Store) GetLocationForDay(day string) (*weather.LocationPeriod, error) {
+func (s *SQLiteStore) GetLocationForDay(day string) (*weather.LocationPeriod, error) {
 	var p weather.LocationPeriod
 	err := s.db.QueryRow(
 		`SELECT id, city, latitude, longitude, timezone, start_date, COALESCE(end_date, '')
@@ -485,7 +487,7 @@ func (s *Store) GetLocationForDay(day string) (*weather.LocationPeriod, error) {
 }
 
 // UpsertWeatherRecords inserts or updates daily weather records for a location.
-func (s *Store) UpsertWeatherRecords(locationID int64, records []weather.DayRecord) error {
+func (s *SQLiteStore) UpsertWeatherRecords(locationID int64, records []weather.DayRecord) error {
 	if len(records) == 0 {
 		return nil
 	}
@@ -527,7 +529,7 @@ func (s *Store) UpsertWeatherRecords(locationID int64, records []weather.DayReco
 
 // GetLastWeatherDay returns the most recent day with weather data for a location.
 // Returns empty string if no data exists.
-func (s *Store) GetLastWeatherDay(locationID int64) (string, error) {
+func (s *SQLiteStore) GetLastWeatherDay(locationID int64) (string, error) {
 	var day string
 	err := s.db.QueryRow(
 		"SELECT day FROM daily_weather WHERE location_id = ? ORDER BY day DESC LIMIT 1",

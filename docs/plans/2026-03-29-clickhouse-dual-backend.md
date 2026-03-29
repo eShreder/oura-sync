@@ -59,11 +59,11 @@
 ## Implementation Steps
 
 ### Task 1: Extract Store interface and rename SQLite implementation
-- [ ] create `internal/store/store.go` with `Store` interface covering all public methods: `Close`, `UpsertRecords`, `GetLastSync`, `SetLastSync`, `UpsertLocationPeriods`, `GetLocationPeriods`, `GetLocationForDay`, `UpsertWeatherRecords`, `GetLastWeatherDay`
-- [ ] rename `Store` → `SQLiteStore` and `New` → `NewSQLiteStore` in `internal/store/sqlite.go`
-- [ ] add compile-time check `var _ Store = (*SQLiteStore)(nil)` in `sqlite.go`
-- [ ] update `internal/store/sqlite_test.go`: replace `Store` → `SQLiteStore`, `New` → `NewSQLiteStore`
-- [ ] run tests — `go test ./internal/store/...` must pass
+- [x] create `internal/store/store.go` with `Store` interface covering all public methods: `Close`, `UpsertRecords`, `GetLastSync`, `SetLastSync`, `UpsertLocationPeriods`, `GetLocationPeriods`, `GetLocationForDay`, `UpsertWeatherRecords`, `GetLastWeatherDay`
+- [x] rename `Store` → `SQLiteStore` and `New` → `NewSQLiteStore` in `internal/store/sqlite.go`
+- [x] add compile-time check `var _ Store = (*SQLiteStore)(nil)` in `sqlite.go`
+- [x] update `internal/store/sqlite_test.go`: replace `Store` → `SQLiteStore`, `New` → `NewSQLiteStore`
+- [x] run tests — `go test ./internal/store/...` must pass
 
 ### Task 2: Update consumers to use Store interface
 - [ ] update `internal/sync/syncer.go`: change `store *store.Store` field and `NewSyncer` param to `store store.Store`
