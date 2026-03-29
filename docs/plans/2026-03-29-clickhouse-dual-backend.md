@@ -107,15 +107,15 @@
 - [x] run tests — must pass
 
 ### Task 7: Implement ClickHouseStore — sync state and record upserts
-- [ ] implement `GetLastSync(endpoint)` using `SELECT ... FINAL`
-- [ ] implement `SetLastSync(endpoint, time)` using INSERT (ReplacingMergeTree handles dedup)
-- [ ] implement `UpsertRecords(endpointName, records)` with same extraction logic as SQLite:
+- [x] implement `GetLastSync(endpoint)` using `SELECT ... FINAL`
+- [x] implement `SetLastSync(endpoint, time)` using INSERT (ReplacingMergeTree handles dedup)
+- [x] implement `UpsertRecords(endpointName, records)` with same extraction logic as SQLite:
   - `personal_info`: singleton with id=1
   - `heartrate`: extract timestamp, bpm, source
   - standard endpoints: extract id, day
-- [ ] write tests for sync state get/set
-- [ ] write tests for UpsertRecords — personal_info, heartrate, standard endpoints (insert + update)
-- [ ] run tests — must pass
+- [x] write tests for sync state get/set
+- [x] write tests for UpsertRecords — personal_info, heartrate, standard endpoints (insert + update)
+- [x] run tests — must pass
 
 ### Task 8: Implement ClickHouseStore — location and weather methods
 - [ ] implement `UpsertLocationPeriods(periods)` with deterministic ID: `fnv64a(city + "|" + start_date) >> 1`

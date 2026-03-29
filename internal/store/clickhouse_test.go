@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	chmodule "github.com/testcontainers/testcontainers-go/modules/clickhouse"
 	"github.com/user/oura-sync/internal/api"
@@ -169,4 +171,376 @@ func TestClickHouseStore_MigrateIdempotent(t *testing.T) {
 		t.Fatalf("second NewClickHouseStore: %v", err)
 	}
 	s2.Close()
+}
+
+func TestClickHouseStore_GetLastSync_Empty(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	cfg := startClickHouseContainer(t)
+	s, err := NewClickHouseStore(cfg)
+	if err != nil {
+		t.Fatalf("NewClickHouseStore: %v", err)
+	}
+	defer s.Close()
+
+	got, err := s.GetLastSync("daily_activity")
+	if err != nil {
+		t.Fatalf("GetLastSync: %v", err)
+	}
+	if !got.IsZero() {
+		t.Errorf("expected zero time for unseen endpoint, got %v", got)
+	}
+}
+
+func TestClickHouseStore_SetAndGetLastSync(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	cfg := startClickHouseContainer(t)
+	s, err := NewClickHouseStore(cfg)
+	if err != nil {
+		t.Fatalf("NewClickHouseStore: %v", err)
+	}
+	defer s.Close()
+
+	ts := time.Date(2025, 6, 15, 10, 30, 0, 0, time.UTC)
+	if err := s.SetLastSync("daily_activity", ts); err != nil {
+		t.Fatalf("SetLastSync: %v", err)
+	}
+
+	got, err := s.GetLastSync("daily_activity")
+	if err != nil {
+		t.Fatalf("GetLastSync: %v", err)
+	}
+	if !got.Equal(ts) {
+		t.Errorf("GetLastSync = %v, want %v", got, ts)
+	}
+
+	// Update with a newer time
+	ts2 := time.Date(2025, 6, 16, 12, 0, 0, 0, time.UTC)
+	if err := s.SetLastSync("daily_activity", ts2); err != nil {
+		t.Fatalf("SetLastSync (update): %v", err)
+	}
+
+	// Force merge to ensure ReplacingMergeTree dedup is applied
+	ctx := context.Background()
+	_ = s.conn.Exec(ctx, "OPTIMIZE TABLE sync_state FINAL")
+
+	got2, err := s.GetLastSync("daily_activity")
+	if err != nil {
+		t.Fatalf("GetLastSync after update: %v", err)
+	}
+	if !got2.Equal(ts2) {
+		t.Errorf("GetLastSync after update = %v, want %v", got2, ts2)
+	}
+}
+
+func TestClickHouseStore_SetLastSync_MultipleEndpoints(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	cfg := startClickHouseContainer(t)
+	s, err := NewClickHouseStore(cfg)
+	if err != nil {
+		t.Fatalf("NewClickHouseStore: %v", err)
+	}
+	defer s.Close()
+
+	ts1 := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	ts2 := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
+
+	if err := s.SetLastSync("daily_activity", ts1); err != nil {
+		t.Fatalf("SetLastSync daily_activity: %v", err)
+	}
+	if err := s.SetLastSync("heartrate", ts2); err != nil {
+		t.Fatalf("SetLastSync heartrate: %v", err)
+	}
+
+	got1, err := s.GetLastSync("daily_activity")
+	if err != nil {
+		t.Fatalf("GetLastSync daily_activity: %v", err)
+	}
+	if !got1.Equal(ts1) {
+		t.Errorf("daily_activity = %v, want %v", got1, ts1)
+	}
+
+	got2, err := s.GetLastSync("heartrate")
+	if err != nil {
+		t.Fatalf("GetLastSync heartrate: %v", err)
+	}
+	if !got2.Equal(ts2) {
+		t.Errorf("heartrate = %v, want %v", got2, ts2)
+	}
+}
+
+func TestClickHouseStore_UpsertRecords_PersonalInfo(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	cfg := startClickHouseContainer(t)
+	s, err := NewClickHouseStore(cfg)
+	if err != nil {
+		t.Fatalf("NewClickHouseStore: %v", err)
+	}
+	defer s.Close()
+
+	records := []json.RawMessage{
+		json.RawMessage(`{"email":"test@example.com","age":30}`),
+	}
+	if err := s.UpsertRecords("personal_info", records); err != nil {
+		t.Fatalf("UpsertRecords personal_info: %v", err)
+	}
+
+	// Verify data was inserted
+	ctx := context.Background()
+	var data string
+	err = s.conn.QueryRow(ctx, "SELECT data FROM personal_info FINAL WHERE id = 1").Scan(&data)
+	if err != nil {
+		t.Fatalf("querying personal_info: %v", err)
+	}
+	if data != `{"email":"test@example.com","age":30}` {
+		t.Errorf("data = %s, want original JSON", data)
+	}
+
+	// Update personal_info
+	records2 := []json.RawMessage{
+		json.RawMessage(`{"email":"new@example.com","age":31}`),
+	}
+	if err := s.UpsertRecords("personal_info", records2); err != nil {
+		t.Fatalf("UpsertRecords personal_info update: %v", err)
+	}
+
+	_ = s.conn.Exec(ctx, "OPTIMIZE TABLE personal_info FINAL")
+
+	err = s.conn.QueryRow(ctx, "SELECT data FROM personal_info FINAL WHERE id = 1").Scan(&data)
+	if err != nil {
+		t.Fatalf("querying personal_info after update: %v", err)
+	}
+	if data != `{"email":"new@example.com","age":31}` {
+		t.Errorf("updated data = %s, want new JSON", data)
+	}
+}
+
+func TestClickHouseStore_UpsertRecords_Heartrate(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	cfg := startClickHouseContainer(t)
+	s, err := NewClickHouseStore(cfg)
+	if err != nil {
+		t.Fatalf("NewClickHouseStore: %v", err)
+	}
+	defer s.Close()
+
+	records := []json.RawMessage{
+		json.RawMessage(`{"timestamp":"2025-06-15T10:00:00+00:00","bpm":72,"source":"awake"}`),
+		json.RawMessage(`{"timestamp":"2025-06-15T10:01:00+00:00","bpm":75,"source":"awake"}`),
+	}
+	if err := s.UpsertRecords("heartrate", records); err != nil {
+		t.Fatalf("UpsertRecords heartrate: %v", err)
+	}
+
+	ctx := context.Background()
+	var count uint64
+	err = s.conn.QueryRow(ctx, "SELECT count() FROM heartrate FINAL").Scan(&count)
+	if err != nil {
+		t.Fatalf("counting heartrate: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("heartrate count = %d, want 2", count)
+	}
+
+	// Verify extracted fields
+	var bpm int64
+	var source string
+	err = s.conn.QueryRow(ctx,
+		"SELECT bpm, source FROM heartrate FINAL WHERE timestamp = ?",
+		"2025-06-15T10:00:00+00:00",
+	).Scan(&bpm, &source)
+	if err != nil {
+		t.Fatalf("querying heartrate row: %v", err)
+	}
+	if bpm != 72 {
+		t.Errorf("bpm = %d, want 72", bpm)
+	}
+	if source != "awake" {
+		t.Errorf("source = %s, want awake", source)
+	}
+
+	// Update existing record
+	records2 := []json.RawMessage{
+		json.RawMessage(`{"timestamp":"2025-06-15T10:00:00+00:00","bpm":80,"source":"rest"}`),
+	}
+	if err := s.UpsertRecords("heartrate", records2); err != nil {
+		t.Fatalf("UpsertRecords heartrate update: %v", err)
+	}
+
+	_ = s.conn.Exec(ctx, "OPTIMIZE TABLE heartrate FINAL")
+
+	err = s.conn.QueryRow(ctx,
+		"SELECT bpm, source FROM heartrate FINAL WHERE timestamp = ?",
+		"2025-06-15T10:00:00+00:00",
+	).Scan(&bpm, &source)
+	if err != nil {
+		t.Fatalf("querying heartrate after update: %v", err)
+	}
+	if bpm != 80 {
+		t.Errorf("updated bpm = %d, want 80", bpm)
+	}
+}
+
+func TestClickHouseStore_UpsertRecords_Heartrate_MissingTimestamp(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	cfg := startClickHouseContainer(t)
+	s, err := NewClickHouseStore(cfg)
+	if err != nil {
+		t.Fatalf("NewClickHouseStore: %v", err)
+	}
+	defer s.Close()
+
+	records := []json.RawMessage{
+		json.RawMessage(`{"bpm":72}`),
+	}
+	err = s.UpsertRecords("heartrate", records)
+	if err == nil {
+		t.Fatal("expected error for missing timestamp, got nil")
+	}
+}
+
+func TestClickHouseStore_UpsertRecords_StandardEndpoint(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	cfg := startClickHouseContainer(t)
+	s, err := NewClickHouseStore(cfg)
+	if err != nil {
+		t.Fatalf("NewClickHouseStore: %v", err)
+	}
+	defer s.Close()
+
+	records := []json.RawMessage{
+		json.RawMessage(`{"id":"abc-123","day":"2025-06-15","score":85}`),
+		json.RawMessage(`{"id":"def-456","day":"2025-06-16","score":90}`),
+	}
+	if err := s.UpsertRecords("daily_activity", records); err != nil {
+		t.Fatalf("UpsertRecords daily_activity: %v", err)
+	}
+
+	ctx := context.Background()
+	var count uint64
+	err = s.conn.QueryRow(ctx, "SELECT count() FROM daily_activity FINAL").Scan(&count)
+	if err != nil {
+		t.Fatalf("counting daily_activity: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("daily_activity count = %d, want 2", count)
+	}
+
+	// Verify extracted fields
+	var day string
+	var data string
+	err = s.conn.QueryRow(ctx,
+		"SELECT day, data FROM daily_activity FINAL WHERE id = ?",
+		"abc-123",
+	).Scan(&day, &data)
+	if err != nil {
+		t.Fatalf("querying daily_activity row: %v", err)
+	}
+	if day != "2025-06-15" {
+		t.Errorf("day = %s, want 2025-06-15", day)
+	}
+
+	// Update existing record
+	records2 := []json.RawMessage{
+		json.RawMessage(`{"id":"abc-123","day":"2025-06-15","score":99}`),
+	}
+	if err := s.UpsertRecords("daily_activity", records2); err != nil {
+		t.Fatalf("UpsertRecords daily_activity update: %v", err)
+	}
+
+	_ = s.conn.Exec(ctx, "OPTIMIZE TABLE daily_activity FINAL")
+
+	err = s.conn.QueryRow(ctx,
+		"SELECT data FROM daily_activity FINAL WHERE id = ?",
+		"abc-123",
+	).Scan(&data)
+	if err != nil {
+		t.Fatalf("querying daily_activity after update: %v", err)
+	}
+	if data != `{"id":"abc-123","day":"2025-06-15","score":99}` {
+		t.Errorf("updated data = %s, want new JSON", data)
+	}
+}
+
+func TestClickHouseStore_UpsertRecords_StandardEndpoint_MissingID(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	cfg := startClickHouseContainer(t)
+	s, err := NewClickHouseStore(cfg)
+	if err != nil {
+		t.Fatalf("NewClickHouseStore: %v", err)
+	}
+	defer s.Close()
+
+	records := []json.RawMessage{
+		json.RawMessage(`{"day":"2025-06-15"}`),
+	}
+	err = s.UpsertRecords("daily_activity", records)
+	if err == nil {
+		t.Fatal("expected error for missing id, got nil")
+	}
+}
+
+func TestClickHouseStore_UpsertRecords_EmptyRecords(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	cfg := startClickHouseContainer(t)
+	s, err := NewClickHouseStore(cfg)
+	if err != nil {
+		t.Fatalf("NewClickHouseStore: %v", err)
+	}
+	defer s.Close()
+
+	err = s.UpsertRecords("daily_activity", nil)
+	if err != nil {
+		t.Fatalf("UpsertRecords with nil records: %v", err)
+	}
+
+	err = s.UpsertRecords("daily_activity", []json.RawMessage{})
+	if err != nil {
+		t.Fatalf("UpsertRecords with empty records: %v", err)
+	}
+}
+
+func TestClickHouseStore_UpsertRecords_InvalidEndpointName(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	cfg := startClickHouseContainer(t)
+	s, err := NewClickHouseStore(cfg)
+	if err != nil {
+		t.Fatalf("NewClickHouseStore: %v", err)
+	}
+	defer s.Close()
+
+	records := []json.RawMessage{json.RawMessage(`{"id":"1"}`)}
+	err = s.UpsertRecords("bad-name!", records)
+	if err == nil {
+		t.Fatal("expected error for invalid endpoint name, got nil")
+	}
 }

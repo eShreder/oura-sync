@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -152,16 +153,121 @@ func (s *ClickHouseStore) migrate(ctx context.Context) error {
 	return nil
 }
 
-func (s *ClickHouseStore) UpsertRecords(endpointName string, records []json.RawMessage) error {
-	return errNotImplemented
-}
-
+// GetLastSync returns the last sync time for the given endpoint.
+// Uses SELECT ... FINAL to get the latest version from ReplacingMergeTree.
 func (s *ClickHouseStore) GetLastSync(endpoint string) (time.Time, error) {
-	return time.Time{}, errNotImplemented
+	ctx := context.Background()
+	var lastSync string
+	err := s.conn.QueryRow(ctx,
+		"SELECT last_sync FROM sync_state FINAL WHERE endpoint = ?",
+		endpoint,
+	).Scan(&lastSync)
+
+	if err == sql.ErrNoRows {
+		return time.Time{}, nil
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("querying sync state for %s: %w", endpoint, err)
+	}
+
+	t, err := time.Parse(time.RFC3339, lastSync)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("parsing sync time for %s: %w", endpoint, err)
+	}
+	return t, nil
 }
 
+// SetLastSync updates the last sync time for the given endpoint.
+// Uses plain INSERT; ReplacingMergeTree deduplicates by ORDER BY (endpoint).
 func (s *ClickHouseStore) SetLastSync(endpoint string, t time.Time) error {
-	return errNotImplemented
+	ctx := context.Background()
+	err := s.conn.Exec(ctx,
+		"INSERT INTO sync_state (endpoint, last_sync) VALUES (?, ?)",
+		endpoint, t.Format(time.RFC3339),
+	)
+	if err != nil {
+		return fmt.Errorf("setting sync state for %s: %w", endpoint, err)
+	}
+	return nil
+}
+
+// UpsertRecords inserts or updates records for the given endpoint.
+// Extraction logic matches SQLite: personal_info is singleton, heartrate uses timestamp,
+// standard endpoints use id+day.
+func (s *ClickHouseStore) UpsertRecords(endpointName string, records []json.RawMessage) error {
+	if len(records) == 0 {
+		return nil
+	}
+
+	if !validEndpointName.MatchString(endpointName) {
+		return fmt.Errorf("invalid endpoint name: %q", endpointName)
+	}
+
+	ctx := context.Background()
+	for _, raw := range records {
+		if err := s.upsertOne(ctx, endpointName, raw); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *ClickHouseStore) upsertOne(ctx context.Context, endpointName string, raw json.RawMessage) error {
+	switch endpointName {
+	case "personal_info":
+		err := s.conn.Exec(ctx,
+			"INSERT INTO personal_info (id, data) VALUES (1, ?)",
+			string(raw),
+		)
+		if err != nil {
+			return fmt.Errorf("upserting personal_info: %w", err)
+		}
+
+	case "heartrate":
+		var rec struct {
+			Timestamp string `json:"timestamp"`
+			BPM       *int   `json:"bpm"`
+			Source    string `json:"source"`
+		}
+		if err := json.Unmarshal(raw, &rec); err != nil {
+			return fmt.Errorf("parsing heartrate record: %w", err)
+		}
+		if rec.Timestamp == "" {
+			return fmt.Errorf("heartrate record missing timestamp field")
+		}
+		var bpm *int64
+		if rec.BPM != nil {
+			v := int64(*rec.BPM)
+			bpm = &v
+		}
+		err := s.conn.Exec(ctx,
+			"INSERT INTO heartrate (timestamp, bpm, source, data) VALUES (?, ?, ?, ?)",
+			rec.Timestamp, bpm, &rec.Source, string(raw),
+		)
+		if err != nil {
+			return fmt.Errorf("upserting heartrate record: %w", err)
+		}
+
+	default:
+		var rec struct {
+			ID  string `json:"id"`
+			Day string `json:"day"`
+		}
+		if err := json.Unmarshal(raw, &rec); err != nil {
+			return fmt.Errorf("parsing %s record: %w", endpointName, err)
+		}
+		if rec.ID == "" {
+			return fmt.Errorf("%s record missing id field", endpointName)
+		}
+		err := s.conn.Exec(ctx,
+			fmt.Sprintf("INSERT INTO %s (id, day, data) VALUES (?, ?, ?)", endpointName),
+			rec.ID, &rec.Day, string(raw),
+		)
+		if err != nil {
+			return fmt.Errorf("upserting %s record: %w", endpointName, err)
+		}
+	}
+	return nil
 }
 
 func (s *ClickHouseStore) UpsertLocationPeriods(periods []weather.LocationPeriod) error {
