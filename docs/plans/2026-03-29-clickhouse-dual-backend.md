@@ -136,13 +136,13 @@
 - [x] run full test suite — `go test ./...` must pass
 
 ### Task 10: Verify acceptance criteria
-- [ ] verify all Store interface methods implemented for both backends
-- [ ] verify SQLite behavior unchanged (backward compatibility)
-- [ ] verify ClickHouse backend works end-to-end through Store interface
-- [ ] verify config selection logic (nil clickhouse → SQLite, present → ClickHouse)
-- [ ] run full test suite — `go test ./...`
-- [ ] run linter — `go vet ./...` — all issues must be fixed
-- [ ] verify edge cases: empty records, invalid JSON, 404 handling still works
+- [x] verify all Store interface methods implemented for both backends
+- [x] verify SQLite behavior unchanged (backward compatibility)
+- [x] verify ClickHouse backend works end-to-end through Store interface
+- [x] verify config selection logic (nil clickhouse → SQLite, present → ClickHouse)
+- [x] run full test suite — `go test ./...`
+- [x] run linter — `go vet ./...` — all issues must be fixed
+- [x] verify edge cases: empty records, invalid JSON, 404 handling still works
 
 ### Task 11: [Final] Update documentation
 - [ ] update README.md with ClickHouse setup instructions and config example
