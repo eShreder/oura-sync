@@ -316,6 +316,48 @@ JOIN location_period lp FINAL ON lp.id = dw.location_id
 ORDER BY ds.day;
 ```
 
+## External Tables (ClickHouse only)
+
+These tables are not managed by oura-sync but live in the same ClickHouse database and can be joined with health data for richer analysis.
+
+### `scd41_readings`
+
+Indoor air quality readings from SCD41 CO₂/temperature/humidity sensors. Multiple sensors report to the same table, distinguished by `place`. Readings arrive every ~5 minutes per sensor.
+
+| Column        | Type     | Description                                       |
+|---------------|----------|---------------------------------------------------|
+| `timestamp`   | DateTime | Measurement time (ORDER BY key)                   |
+| `place`       | String   | Sensor location (`bedroom-room`, `work-room`)     |
+| `co2`         | UInt16   | CO₂ concentration in ppm                          |
+| `temperature` | Float32  | Temperature °C                                    |
+| `humidity`    | Float32  | Relative humidity %                               |
+
+**Example queries:**
+
+```sql
+-- Average CO₂ by room for the last 24 hours
+SELECT place, round(avg(co2)) AS avg_co2
+FROM scd41_readings
+WHERE timestamp >= now() - INTERVAL 24 HOUR
+GROUP BY place;
+
+-- Correlate bedroom CO₂ with sleep score
+SELECT ds.day,
+       JSONExtractInt(ds.data, 'score') AS sleep_score,
+       round(avg(sr.co2)) AS avg_bedroom_co2,
+       round(avg(sr.temperature), 1) AS avg_bedroom_temp
+FROM daily_sleep ds FINAL
+JOIN scd41_readings sr
+  ON toDate(sr.timestamp) = toDate(ds.day)
+  AND sr.place = 'bedroom-room'
+  AND toHour(sr.timestamp) BETWEEN 22 AND 23  -- evening before sleep
+GROUP BY ds.day, sleep_score
+ORDER BY ds.day DESC
+LIMIT 30;
+```
+
+---
+
 ## Notes
 
 - The `data` column is the source of truth — extracted columns are for convenience only.
