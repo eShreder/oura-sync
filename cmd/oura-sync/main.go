@@ -60,11 +60,22 @@ func run() int {
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	// Open store.
-	st, err := store.NewSQLiteStore(cfg.DB)
-	if err != nil {
-		logger.Error("failed to open database", "path", cfg.DB, "error", err)
-		return 1
+	// Open store — ClickHouse if configured, otherwise SQLite (default).
+	var st store.Store
+	if cfg.ClickHouse != nil {
+		st, err = store.NewClickHouseStore(cfg.ClickHouse)
+		if err != nil {
+			logger.Error("failed to open clickhouse", "host", cfg.ClickHouse.Host, "error", err)
+			return 1
+		}
+		logger.Info("using ClickHouse backend", "host", cfg.ClickHouse.Host, "port", cfg.ClickHouse.Port)
+	} else {
+		st, err = store.NewSQLiteStore(cfg.DB)
+		if err != nil {
+			logger.Error("failed to open database", "path", cfg.DB, "error", err)
+			return 1
+		}
+		logger.Info("using SQLite backend", "path", cfg.DB)
 	}
 	defer st.Close()
 
@@ -91,7 +102,7 @@ func run() int {
 	}()
 
 	// Run sync.
-	logger.Info("starting sync", "db", cfg.DB, "days", cfg.Days)
+	logger.Info("starting sync", "days", cfg.Days)
 	results, err := syncer.SyncAll(ctx, cfg.Days)
 	if err != nil {
 		logger.Error("sync failed", "error", err)

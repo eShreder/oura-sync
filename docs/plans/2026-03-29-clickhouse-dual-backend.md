@@ -80,10 +80,10 @@
 - [x] run tests — `go test ./internal/config/...` must pass
 
 ### Task 4: Add backend selection in main.go
-- [ ] add logic in `cmd/oura-sync/main.go` to choose backend based on `cfg.ClickHouse != nil`
-- [ ] SQLite path: call `store.NewSQLiteStore(cfg.DB)` as before
-- [ ] ClickHouse path: call `store.NewClickHouseStore(cfg.ClickHouse)` (stub for now — will be implemented in Task 6)
-- [ ] run `go build ./...` to verify compilation (ClickHouse store will exist as stub)
+- [x] add logic in `cmd/oura-sync/main.go` to choose backend based on `cfg.ClickHouse != nil`
+- [x] SQLite path: call `store.NewSQLiteStore(cfg.DB)` as before
+- [x] ClickHouse path: call `store.NewClickHouseStore(cfg.ClickHouse)` (stub for now — will be implemented in Task 6)
+- [x] run `go build ./...` to verify compilation (ClickHouse store will exist as stub)
 
 ### Task 5: Add ClickHouse dependency
 - [ ] run `go get github.com/ClickHouse/clickhouse-go/v2`
