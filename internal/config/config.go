@@ -18,13 +18,24 @@ type Location struct {
 	StartDate string  `yaml:"start_date"`
 }
 
+// ClickHouse holds connection settings for a ClickHouse backend.
+type ClickHouse struct {
+	Host     string `yaml:"host"`
+	Port     int    `yaml:"port"`
+	Database string `yaml:"database"`
+	User     string `yaml:"user"`
+	Password string `yaml:"password"`
+	Secure   bool   `yaml:"secure"`
+}
+
 // Config holds all application settings.
 type Config struct {
-	Token     string        `yaml:"token"`
-	DB        string        `yaml:"db"`
-	Days      int           `yaml:"days"`
-	Timeout   time.Duration `yaml:"timeout"`
-	Locations []Location    `yaml:"locations"`
+	Token      string        `yaml:"token"`
+	DB         string        `yaml:"db"`
+	Days       int           `yaml:"days"`
+	Timeout    time.Duration `yaml:"timeout"`
+	Locations  []Location    `yaml:"locations"`
+	ClickHouse *ClickHouse   `yaml:"clickhouse"`
 }
 
 // ValidateLocations checks that all location entries have the required fields
@@ -106,6 +117,9 @@ func Merge(cfg Config, env EnvVars, flags FlagVals, flagSet map[string]bool) Con
 	if env.Token != "" {
 		cfg.Token = env.Token
 	}
+	if env.ClickHousePassword != "" && cfg.ClickHouse != nil {
+		cfg.ClickHouse.Password = env.ClickHousePassword
+	}
 
 	// CLI flags override everything.
 	if flagSet["db"] {
@@ -123,7 +137,8 @@ func Merge(cfg Config, env EnvVars, flags FlagVals, flagSet map[string]bool) Con
 
 // EnvVars holds values read from environment variables.
 type EnvVars struct {
-	Token string
+	Token              string
+	ClickHousePassword string
 }
 
 // FlagVals holds values read from CLI flags.

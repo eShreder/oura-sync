@@ -22,16 +22,16 @@ func newMockStore() *mockStore {
 	}
 }
 
-func (m *mockStore) UpsertLocationPeriods(periods []LocationPeriod) error {
+func (m *mockStore) UpsertLocationPeriods(_ context.Context, periods []LocationPeriod) error {
 	m.periods = periods
 	return nil
 }
 
-func (m *mockStore) GetLocationPeriods() ([]LocationPeriod, error) {
+func (m *mockStore) GetLocationPeriods(_ context.Context) ([]LocationPeriod, error) {
 	return m.periods, nil
 }
 
-func (m *mockStore) UpsertWeatherRecords(locationID int64, records []DayRecord) error {
+func (m *mockStore) UpsertWeatherRecords(_ context.Context, locationID int64, records []DayRecord) error {
 	m.records[locationID] = append(m.records[locationID], records...)
 	// Update last day.
 	for _, r := range records {
@@ -42,7 +42,7 @@ func (m *mockStore) UpsertWeatherRecords(locationID int64, records []DayRecord) 
 	return nil
 }
 
-func (m *mockStore) GetLastWeatherDay(locationID int64) (string, error) {
+func (m *mockStore) GetLastWeatherDay(_ context.Context, locationID int64) (string, error) {
 	return m.lastDays[locationID], nil
 }
 

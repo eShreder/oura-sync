@@ -64,7 +64,7 @@ func TestIntegration_FullSyncCycle(t *testing.T) {
 	dbPath := filepath.Join(tmpDir, "test-oura.db")
 
 	// Initialize components.
-	st, err := store.New(dbPath)
+	st, err := store.NewSQLiteStore(dbPath)
 	if err != nil {
 		t.Fatalf("creating store: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestIntegration_FullSyncCycle(t *testing.T) {
 
 	// Verify sync state was recorded for all endpoints.
 	for _, ep := range api.Endpoints {
-		lastSync, err := st.GetLastSync(ep.Name)
+		lastSync, err := st.GetLastSync(context.Background(), ep.Name)
 		if err != nil {
 			t.Errorf("GetLastSync(%s): %v", ep.Name, err)
 			continue
@@ -175,7 +175,7 @@ func TestIntegration_WithPagination(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	st, err := store.New(":memory:")
+	st, err := store.NewSQLiteStore(":memory:")
 	if err != nil {
 		t.Fatalf("creating store: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestIntegration_ContextCancellation(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	st, err := store.New(":memory:")
+	st, err := store.NewSQLiteStore(":memory:")
 	if err != nil {
 		t.Fatalf("creating store: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestIntegration_WeatherSync(t *testing.T) {
 	}))
 	defer weatherSrv.Close()
 
-	st, err := store.New(":memory:")
+	st, err := store.NewSQLiteStore(":memory:")
 	if err != nil {
 		t.Fatalf("creating store: %v", err)
 	}
@@ -293,7 +293,7 @@ func TestIntegration_WeatherSync(t *testing.T) {
 	periods := []weather.LocationPeriod{
 		{City: cfg.Locations[0].City, Latitude: cfg.Locations[0].Latitude, Longitude: cfg.Locations[0].Longitude, Timezone: cfg.Locations[0].Timezone, StartDate: cfg.Locations[0].StartDate},
 	}
-	if err := st.UpsertLocationPeriods(periods); err != nil {
+	if err := st.UpsertLocationPeriods(context.Background(), periods); err != nil {
 		t.Fatalf("UpsertLocationPeriods: %v", err)
 	}
 
@@ -311,12 +311,12 @@ func TestIntegration_WeatherSync(t *testing.T) {
 	}
 
 	// Verify data in DB.
-	locs, _ := st.GetLocationPeriods()
+	locs, _ := st.GetLocationPeriods(context.Background())
 	if len(locs) != 1 {
 		t.Fatalf("expected 1 location, got %d", len(locs))
 	}
 
-	lastDay, err := st.GetLastWeatherDay(locs[0].ID)
+	lastDay, err := st.GetLastWeatherDay(context.Background(), locs[0].ID)
 	if err != nil {
 		t.Fatalf("GetLastWeatherDay: %v", err)
 	}

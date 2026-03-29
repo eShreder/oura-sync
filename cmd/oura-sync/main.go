@@ -16,8 +16,6 @@ import (
 	"github.com/user/oura-sync/internal/store"
 	"github.com/user/oura-sync/internal/sync"
 	"github.com/user/oura-sync/internal/weather"
-
-	_ "modernc.org/sqlite"
 )
 
 func main() {
@@ -48,7 +46,8 @@ func run() int {
 
 	// Merge: CLI flags > env vars > config file > defaults.
 	cfg = config.Merge(cfg, config.EnvVars{
-		Token: os.Getenv("OURA_TOKEN"),
+		Token:              os.Getenv("OURA_TOKEN"),
+		ClickHousePassword: os.Getenv("CLICKHOUSE_PASSWORD"),
 	}, config.FlagVals{
 		DB:      *dbPath,
 		Days:    *days,
@@ -62,21 +61,8 @@ func run() int {
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	// Open store.
-	st, err := store.New(cfg.DB)
-	if err != nil {
-		logger.Error("failed to open database", "path", cfg.DB, "error", err)
-		return 1
-	}
-	defer st.Close()
-
-	// Create API client.
-	client := api.NewClient(cfg.Token, "https://api.ouraring.com")
-
-	// Create syncer.
-	syncer := sync.NewSyncer(client, st, logger)
-
-	// Set up context with timeout and signal handling.
+	// Set up context with timeout and signal handling before opening the store,
+	// so that startup (connection, migration) is also bounded by --timeout.
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
 	defer cancel()
 
@@ -92,8 +78,33 @@ func run() int {
 		}
 	}()
 
+	// Open store — ClickHouse if configured, otherwise SQLite (default).
+	var st store.Store
+	if cfg.ClickHouse != nil {
+		st, err = store.NewClickHouseStore(ctx, cfg.ClickHouse)
+		if err != nil {
+			logger.Error("failed to open clickhouse", "host", cfg.ClickHouse.Host, "error", err)
+			return 1
+		}
+		logger.Info("using ClickHouse backend", "host", cfg.ClickHouse.Host, "port", cfg.ClickHouse.Port)
+	} else {
+		st, err = store.NewSQLiteStore(cfg.DB)
+		if err != nil {
+			logger.Error("failed to open database", "path", cfg.DB, "error", err)
+			return 1
+		}
+		logger.Info("using SQLite backend", "path", cfg.DB)
+	}
+	defer st.Close()
+
+	// Create API client.
+	client := api.NewClient(cfg.Token, "https://api.ouraring.com")
+
+	// Create syncer.
+	syncer := sync.NewSyncer(client, st, logger)
+
 	// Run sync.
-	logger.Info("starting sync", "db", cfg.DB, "days", cfg.Days)
+	logger.Info("starting sync", "days", cfg.Days)
 	results, err := syncer.SyncAll(ctx, cfg.Days)
 	if err != nil {
 		logger.Error("sync failed", "error", err)
@@ -115,10 +126,10 @@ func run() int {
 	return 0
 }
 
-func runWeatherSync(ctx context.Context, cfg config.Config, st *store.Store, logger *slog.Logger) int {
+func runWeatherSync(ctx context.Context, cfg config.Config, st store.Store, logger *slog.Logger) int {
 	if len(cfg.Locations) == 0 {
 		// Clean up any previously-synced location data.
-		if err := st.UpsertLocationPeriods(nil); err != nil {
+		if err := st.UpsertLocationPeriods(ctx, nil); err != nil {
 			logger.Warn("failed to clean location periods", "error", err)
 		}
 		return 0
@@ -154,7 +165,7 @@ func runWeatherSync(ctx context.Context, cfg config.Config, st *store.Store, log
 		}
 	}
 
-	if err := st.UpsertLocationPeriods(periods); err != nil {
+	if err := st.UpsertLocationPeriods(ctx, periods); err != nil {
 		logger.Warn("failed to sync location periods", "error", err)
 		return 0
 	}

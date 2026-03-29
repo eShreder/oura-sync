@@ -298,6 +298,101 @@ func TestValidateLocations_InvalidTimezone(t *testing.T) {
 	}
 }
 
+func TestLoad_WithClickHouse(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := `token: "abc"
+clickhouse:
+  host: "localhost"
+  port: 9000
+  database: "oura"
+  user: "default"
+  password: "secret"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.ClickHouse == nil {
+		t.Fatal("ClickHouse is nil, want non-nil")
+	}
+	if cfg.ClickHouse.Host != "localhost" {
+		t.Errorf("ClickHouse.Host = %q, want %q", cfg.ClickHouse.Host, "localhost")
+	}
+	if cfg.ClickHouse.Port != 9000 {
+		t.Errorf("ClickHouse.Port = %d, want 9000", cfg.ClickHouse.Port)
+	}
+	if cfg.ClickHouse.Database != "oura" {
+		t.Errorf("ClickHouse.Database = %q, want %q", cfg.ClickHouse.Database, "oura")
+	}
+	if cfg.ClickHouse.User != "default" {
+		t.Errorf("ClickHouse.User = %q, want %q", cfg.ClickHouse.User, "default")
+	}
+	if cfg.ClickHouse.Password != "secret" {
+		t.Errorf("ClickHouse.Password = %q, want %q", cfg.ClickHouse.Password, "secret")
+	}
+}
+
+func TestLoad_WithoutClickHouse(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := `token: "abc"
+db: "my.db"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.ClickHouse != nil {
+		t.Errorf("ClickHouse = %+v, want nil", cfg.ClickHouse)
+	}
+}
+
+func TestLoad_ClickHousePartial(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := `token: "abc"
+clickhouse:
+  host: "ch-server"
+  database: "mydb"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, true)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.ClickHouse == nil {
+		t.Fatal("ClickHouse is nil, want non-nil")
+	}
+	if cfg.ClickHouse.Host != "ch-server" {
+		t.Errorf("ClickHouse.Host = %q, want %q", cfg.ClickHouse.Host, "ch-server")
+	}
+	if cfg.ClickHouse.Port != 0 {
+		t.Errorf("ClickHouse.Port = %d, want 0 (zero value)", cfg.ClickHouse.Port)
+	}
+	if cfg.ClickHouse.User != "" {
+		t.Errorf("ClickHouse.User = %q, want empty", cfg.ClickHouse.User)
+	}
+}
+
+func TestDefaults_ClickHouseNil(t *testing.T) {
+	d := Defaults()
+	if d.ClickHouse != nil {
+		t.Errorf("Defaults().ClickHouse = %+v, want nil", d.ClickHouse)
+	}
+}
+
 func TestLoad_NoLocations(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -14,13 +15,15 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// Store wraps a SQLite database for persisting Oura API data.
-type Store struct {
+var _ Store = (*SQLiteStore)(nil)
+
+// SQLiteStore wraps a SQLite database for persisting Oura API data.
+type SQLiteStore struct {
 	db *sql.DB
 }
 
-// New opens (or creates) a SQLite database at dbPath and runs schema migrations.
-func New(dbPath string) (*Store, error) {
+// NewSQLiteStore opens (or creates) a SQLite database at dbPath and runs schema migrations.
+func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %w", err)
@@ -42,7 +45,7 @@ func New(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("enabling foreign keys: %w", err)
 	}
 
-	s := &Store{db: db}
+	s := &SQLiteStore{db: db}
 	if err := s.migrate(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("running migrations: %w", err)
@@ -52,12 +55,12 @@ func New(dbPath string) (*Store, error) {
 }
 
 // Close closes the underlying database connection.
-func (s *Store) Close() error {
+func (s *SQLiteStore) Close() error {
 	return s.db.Close()
 }
 
 // migrate creates all required tables based on the endpoint registry.
-func (s *Store) migrate() error {
+func (s *SQLiteStore) migrate() error {
 	// Create sync_state table.
 	if _, err := s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS sync_state (
@@ -206,7 +209,7 @@ var validEndpointName = regexp.MustCompile(`^[a-z0-9_]+$`)
 //   - personal_info: singleton row with id=1
 //   - heartrate: uses "timestamp" field as PK, also extracts bpm and source
 //   - all others: uses "id" field as PK, also extracts "day" field
-func (s *Store) UpsertRecords(endpointName string, records []json.RawMessage) error {
+func (s *SQLiteStore) UpsertRecords(ctx context.Context, endpointName string, records []json.RawMessage) error {
 	if len(records) == 0 {
 		return nil
 	}
@@ -215,14 +218,14 @@ func (s *Store) UpsertRecords(endpointName string, records []json.RawMessage) er
 		return fmt.Errorf("invalid endpoint name: %q", endpointName)
 	}
 
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("beginning transaction: %w", err)
 	}
 	defer tx.Rollback()
 
 	for _, raw := range records {
-		if err := s.upsertOne(tx, endpointName, raw); err != nil {
+		if err := s.upsertOne(ctx, tx, endpointName, raw); err != nil {
 			return err
 		}
 	}
@@ -230,10 +233,10 @@ func (s *Store) UpsertRecords(endpointName string, records []json.RawMessage) er
 	return tx.Commit()
 }
 
-func (s *Store) upsertOne(tx *sql.Tx, endpointName string, raw json.RawMessage) error {
+func (s *SQLiteStore) upsertOne(ctx context.Context, tx *sql.Tx, endpointName string, raw json.RawMessage) error {
 	switch endpointName {
 	case "personal_info":
-		_, err := tx.Exec(
+		_, err := tx.ExecContext(ctx,
 			`INSERT INTO personal_info (id, data, synced_at) VALUES (1, ?, CURRENT_TIMESTAMP)
 			 ON CONFLICT(id) DO UPDATE SET data=excluded.data, synced_at=excluded.synced_at`,
 			string(raw),
@@ -254,7 +257,7 @@ func (s *Store) upsertOne(tx *sql.Tx, endpointName string, raw json.RawMessage) 
 		if rec.Timestamp == "" {
 			return fmt.Errorf("heartrate record missing timestamp field")
 		}
-		_, err := tx.Exec(
+		_, err := tx.ExecContext(ctx,
 			`INSERT INTO heartrate (timestamp, bpm, source, data, synced_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
 			 ON CONFLICT(timestamp) DO UPDATE SET bpm=excluded.bpm, source=excluded.source, data=excluded.data, synced_at=excluded.synced_at`,
 			rec.Timestamp, rec.BPM, rec.Source, string(raw),
@@ -275,7 +278,7 @@ func (s *Store) upsertOne(tx *sql.Tx, endpointName string, raw json.RawMessage) 
 			return fmt.Errorf("%s record missing id field", endpointName)
 		}
 
-		_, err := tx.Exec(
+		_, err := tx.ExecContext(ctx,
 			fmt.Sprintf(
 				`INSERT INTO %s (id, day, data, synced_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)
 				 ON CONFLICT(id) DO UPDATE SET day=excluded.day, data=excluded.data, synced_at=excluded.synced_at`,
@@ -293,9 +296,9 @@ func (s *Store) upsertOne(tx *sql.Tx, endpointName string, raw json.RawMessage) 
 
 // GetLastSync returns the last sync time for the given endpoint.
 // If the endpoint has never been synced, it returns the zero time and nil error.
-func (s *Store) GetLastSync(endpoint string) (time.Time, error) {
+func (s *SQLiteStore) GetLastSync(ctx context.Context, endpoint string) (time.Time, error) {
 	var lastSync string
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		"SELECT last_sync FROM sync_state WHERE endpoint = ?",
 		endpoint,
 	).Scan(&lastSync)
@@ -316,8 +319,8 @@ func (s *Store) GetLastSync(endpoint string) (time.Time, error) {
 }
 
 // SetLastSync updates the last sync time for the given endpoint.
-func (s *Store) SetLastSync(endpoint string, t time.Time) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) SetLastSync(ctx context.Context, endpoint string, t time.Time) error {
+	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO sync_state (endpoint, last_sync) VALUES (?, ?)
 		 ON CONFLICT(endpoint) DO UPDATE SET last_sync=excluded.last_sync`,
 		endpoint, t.Format(time.RFC3339),
@@ -330,8 +333,8 @@ func (s *Store) SetLastSync(endpoint string, t time.Time) error {
 
 // UpsertLocationPeriods syncs location periods from config into the DB.
 // It inserts new periods and updates existing ones matched by city+start_date.
-func (s *Store) UpsertLocationPeriods(periods []weather.LocationPeriod) error {
-	tx, err := s.db.Begin()
+func (s *SQLiteStore) UpsertLocationPeriods(ctx context.Context, periods []weather.LocationPeriod) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("beginning transaction: %w", err)
 	}
@@ -343,7 +346,7 @@ func (s *Store) UpsertLocationPeriods(periods []weather.LocationPeriod) error {
 		var oldLat, oldLon float64
 		var oldTz, oldEndDate string
 		var existed bool
-		err := tx.QueryRow(
+		err := tx.QueryRowContext(ctx,
 			"SELECT id, latitude, longitude, timezone, COALESCE(end_date, '') FROM location_period WHERE city = ? AND start_date = ?",
 			p.City, p.StartDate,
 		).Scan(&oldID, &oldLat, &oldLon, &oldTz, &oldEndDate)
@@ -356,7 +359,7 @@ func (s *Store) UpsertLocationPeriods(periods []weather.LocationPeriod) error {
 		}
 
 		// Atomic upsert — no race between concurrent writers.
-		_, err = tx.Exec(
+		_, err = tx.ExecContext(ctx,
 			`INSERT INTO location_period (city, latitude, longitude, timezone, start_date, end_date, synced_at)
 			 VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 			 ON CONFLICT(city, start_date) DO UPDATE SET
@@ -372,12 +375,12 @@ func (s *Store) UpsertLocationPeriods(periods []weather.LocationPeriod) error {
 		// Invalidate cached weather if coordinates or timezone changed.
 		if existed {
 			if oldLat != p.Latitude || oldLon != p.Longitude || oldTz != p.Timezone {
-				if _, err := tx.Exec("DELETE FROM daily_weather WHERE location_id = ?", oldID); err != nil {
+				if _, err := tx.ExecContext(ctx, "DELETE FROM daily_weather WHERE location_id = ?", oldID); err != nil {
 					return fmt.Errorf("invalidating weather for %s: %w", p.City, err)
 				}
 			} else if p.EndDate != "" && (oldEndDate == "" || p.EndDate < oldEndDate) {
 				// End date was shortened — prune weather data beyond the new end date.
-				if _, err := tx.Exec("DELETE FROM daily_weather WHERE location_id = ? AND day > ?", oldID, p.EndDate); err != nil {
+				if _, err := tx.ExecContext(ctx, "DELETE FROM daily_weather WHERE location_id = ? AND day > ?", oldID, p.EndDate); err != nil {
 					return fmt.Errorf("pruning weather for %s: %w", p.City, err)
 				}
 			}
@@ -387,7 +390,7 @@ func (s *Store) UpsertLocationPeriods(periods []weather.LocationPeriod) error {
 	// Remove location periods not in the current config set.
 	if len(periods) > 0 {
 		// Delete weather data for removed locations first (FK constraint).
-		_, err = tx.Exec(
+		_, err = tx.ExecContext(ctx,
 			`DELETE FROM daily_weather WHERE location_id IN (
 				SELECT id FROM location_period WHERE (city, start_date) NOT IN (`+
 				placeholders(len(periods), 2)+`))`,
@@ -396,7 +399,7 @@ func (s *Store) UpsertLocationPeriods(periods []weather.LocationPeriod) error {
 		if err != nil {
 			return fmt.Errorf("deleting weather for removed locations: %w", err)
 		}
-		_, err = tx.Exec(
+		_, err = tx.ExecContext(ctx,
 			`DELETE FROM location_period WHERE (city, start_date) NOT IN (`+
 				placeholders(len(periods), 2)+`)`,
 			cityStartDateArgs(periods)...,
@@ -406,10 +409,10 @@ func (s *Store) UpsertLocationPeriods(periods []weather.LocationPeriod) error {
 		}
 	} else {
 		// All locations removed from config: clean up everything.
-		if _, err = tx.Exec(`DELETE FROM daily_weather`); err != nil {
+		if _, err = tx.ExecContext(ctx, `DELETE FROM daily_weather`); err != nil {
 			return fmt.Errorf("deleting all weather data: %w", err)
 		}
-		if _, err = tx.Exec(`DELETE FROM location_period`); err != nil {
+		if _, err = tx.ExecContext(ctx, `DELETE FROM location_period`); err != nil {
 			return fmt.Errorf("deleting all location periods: %w", err)
 		}
 	}
@@ -444,8 +447,8 @@ func nilIfEmpty(s string) interface{} {
 }
 
 // GetLocationPeriods returns all location periods ordered by start_date.
-func (s *Store) GetLocationPeriods() ([]weather.LocationPeriod, error) {
-	rows, err := s.db.Query(
+func (s *SQLiteStore) GetLocationPeriods(ctx context.Context) ([]weather.LocationPeriod, error) {
+	rows, err := s.db.QueryContext(ctx,
 		"SELECT id, city, latitude, longitude, timezone, start_date, COALESCE(end_date, '') FROM location_period ORDER BY start_date",
 	)
 	if err != nil {
@@ -465,9 +468,9 @@ func (s *Store) GetLocationPeriods() ([]weather.LocationPeriod, error) {
 }
 
 // GetLocationForDay returns the location period that covers the given day.
-func (s *Store) GetLocationForDay(day string) (*weather.LocationPeriod, error) {
+func (s *SQLiteStore) GetLocationForDay(ctx context.Context, day string) (*weather.LocationPeriod, error) {
 	var p weather.LocationPeriod
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		`SELECT id, city, latitude, longitude, timezone, start_date, COALESCE(end_date, '')
 		 FROM location_period
 		 WHERE start_date <= ? AND (end_date IS NULL OR end_date >= ?)
@@ -485,19 +488,19 @@ func (s *Store) GetLocationForDay(day string) (*weather.LocationPeriod, error) {
 }
 
 // UpsertWeatherRecords inserts or updates daily weather records for a location.
-func (s *Store) UpsertWeatherRecords(locationID int64, records []weather.DayRecord) error {
+func (s *SQLiteStore) UpsertWeatherRecords(ctx context.Context, locationID int64, records []weather.DayRecord) error {
 	if len(records) == 0 {
 		return nil
 	}
 
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("beginning transaction: %w", err)
 	}
 	defer tx.Rollback()
 
 	for _, r := range records {
-		_, err := tx.Exec(
+		_, err := tx.ExecContext(ctx,
 			`INSERT INTO daily_weather (day, location_id, temperature_max, temperature_min, temperature_mean,
 				apparent_temperature_max, apparent_temperature_min, humidity_mean, dewpoint_mean,
 				precipitation_sum, pressure_mean, wind_speed_max, cloud_cover_mean, sunshine_duration,
@@ -527,9 +530,9 @@ func (s *Store) UpsertWeatherRecords(locationID int64, records []weather.DayReco
 
 // GetLastWeatherDay returns the most recent day with weather data for a location.
 // Returns empty string if no data exists.
-func (s *Store) GetLastWeatherDay(locationID int64) (string, error) {
+func (s *SQLiteStore) GetLastWeatherDay(ctx context.Context, locationID int64) (string, error) {
 	var day string
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		"SELECT day FROM daily_weather WHERE location_id = ? ORDER BY day DESC LIMIT 1",
 		locationID,
 	).Scan(&day)
