@@ -50,6 +50,7 @@ clickhouse:
   database: "oura"
   user: "default"
   password: ""
+  secure: false    # set to true for TLS (recommended for remote/cloud instances)
 ```
 
 When the `clickhouse` section is present, SQLite is not used. The `--db` flag is ignored.

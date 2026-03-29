@@ -245,7 +245,7 @@ func TestSyncAll_FirstRun(t *testing.T) {
 
 	// All endpoints should have their sync state set.
 	for _, ep := range api.Endpoints {
-		lastSync, err := st.GetLastSync(ep.Name)
+		lastSync, err := st.GetLastSync(context.Background(),ep.Name)
 		if err != nil {
 			t.Errorf("getting sync state for %s: %v", ep.Name, err)
 		}
@@ -289,7 +289,7 @@ func TestSyncAll_IncrementalSync(t *testing.T) {
 
 	// Simulate a previous sync by setting last_sync for daily_activity.
 	prevSync := time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC)
-	if err := st.SetLastSync("daily_activity", prevSync); err != nil {
+	if err := st.SetLastSync(context.Background(),"daily_activity", prevSync); err != nil {
 		t.Fatalf("setting prev sync: %v", err)
 	}
 
@@ -371,7 +371,7 @@ func TestSyncAll_NotFoundSkipsEndpoint(t *testing.T) {
 	}
 
 	// vo2_max sync state should NOT be updated.
-	lastSync, err := st.GetLastSync("vo2_max")
+	lastSync, err := st.GetLastSync(context.Background(),"vo2_max")
 	if err != nil {
 		t.Fatalf("getting vo2_max sync state: %v", err)
 	}

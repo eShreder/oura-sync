@@ -9,10 +9,10 @@ import (
 
 // Store defines the store methods needed by the weather syncer.
 type Store interface {
-	UpsertLocationPeriods(periods []LocationPeriod) error
-	GetLocationPeriods() ([]LocationPeriod, error)
-	UpsertWeatherRecords(locationID int64, records []DayRecord) error
-	GetLastWeatherDay(locationID int64) (string, error)
+	UpsertLocationPeriods(ctx context.Context, periods []LocationPeriod) error
+	GetLocationPeriods(ctx context.Context) ([]LocationPeriod, error)
+	UpsertWeatherRecords(ctx context.Context, locationID int64, records []DayRecord) error
+	GetLastWeatherDay(ctx context.Context, locationID int64) (string, error)
 }
 
 // LocationPeriod represents a period the user was at a specific location.
@@ -52,7 +52,7 @@ const archiveLagDays = 5
 // SyncAll syncs weather data for all location periods.
 // Returns the total number of records upserted.
 func (s *Syncer) SyncAll(ctx context.Context) (int, error) {
-	periods, err := s.store.GetLocationPeriods()
+	periods, err := s.store.GetLocationPeriods(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("getting location periods: %w", err)
 	}
@@ -99,7 +99,7 @@ func todayAndCutoff(tz string) (today, archiveCutoff string) {
 }
 
 func (s *Syncer) syncLocation(ctx context.Context, loc LocationPeriod, today, archiveCutoff string) (int, error) {
-	lastDay, err := s.store.GetLastWeatherDay(loc.ID)
+	lastDay, err := s.store.GetLastWeatherDay(ctx, loc.ID)
 	if err != nil {
 		return 0, fmt.Errorf("getting last weather day: %w", err)
 	}
@@ -149,7 +149,7 @@ func (s *Syncer) syncLocation(ctx context.Context, loc LocationPeriod, today, ar
 		}
 
 		if len(records) > 0 {
-			if err := s.store.UpsertWeatherRecords(loc.ID, records); err != nil {
+			if err := s.store.UpsertWeatherRecords(ctx, loc.ID, records); err != nil {
 				return total, fmt.Errorf("storing archive weather: %w", err)
 			}
 			total += len(records)
@@ -183,7 +183,7 @@ func (s *Syncer) syncLocation(ctx context.Context, loc LocationPeriod, today, ar
 		}
 
 		if len(filtered) > 0 {
-			if err := s.store.UpsertWeatherRecords(loc.ID, filtered); err != nil {
+			if err := s.store.UpsertWeatherRecords(ctx, loc.ID, filtered); err != nil {
 				return total, fmt.Errorf("storing recent weather: %w", err)
 			}
 			total += len(filtered)

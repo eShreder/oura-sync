@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -83,7 +84,7 @@ func TestUpsertRecords_StandardEndpoint_Insert(t *testing.T) {
 		json.RawMessage(`{"id":"def456","day":"2024-01-16","score":72,"contributors":{"steps":65}}`),
 	}
 
-	err := s.UpsertRecords("daily_activity", records)
+	err := s.UpsertRecords(context.Background(),"daily_activity", records)
 	if err != nil {
 		t.Fatalf("upserting records: %v", err)
 	}
@@ -118,7 +119,7 @@ func TestUpsertRecords_StandardEndpoint_Update(t *testing.T) {
 	records := []json.RawMessage{
 		json.RawMessage(`{"id":"abc123","day":"2024-01-15","score":85}`),
 	}
-	if err := s.UpsertRecords("daily_activity", records); err != nil {
+	if err := s.UpsertRecords(context.Background(),"daily_activity", records); err != nil {
 		t.Fatalf("initial insert: %v", err)
 	}
 
@@ -126,7 +127,7 @@ func TestUpsertRecords_StandardEndpoint_Update(t *testing.T) {
 	updated := []json.RawMessage{
 		json.RawMessage(`{"id":"abc123","day":"2024-01-15","score":90}`),
 	}
-	if err := s.UpsertRecords("daily_activity", updated); err != nil {
+	if err := s.UpsertRecords(context.Background(),"daily_activity", updated); err != nil {
 		t.Fatalf("upsert update: %v", err)
 	}
 
@@ -160,7 +161,7 @@ func TestUpsertRecords_PersonalInfo(t *testing.T) {
 		json.RawMessage(`{"age":35,"weight":75.5,"height":180,"biological_sex":"male","email":"test@example.com"}`),
 	}
 
-	err := s.UpsertRecords("personal_info", records)
+	err := s.UpsertRecords(context.Background(),"personal_info", records)
 	if err != nil {
 		t.Fatalf("upserting personal_info: %v", err)
 	}
@@ -181,7 +182,7 @@ func TestUpsertRecords_PersonalInfo(t *testing.T) {
 	updated := []json.RawMessage{
 		json.RawMessage(`{"age":36,"weight":76.0,"height":180,"biological_sex":"male","email":"test@example.com"}`),
 	}
-	if err := s.UpsertRecords("personal_info", updated); err != nil {
+	if err := s.UpsertRecords(context.Background(),"personal_info", updated); err != nil {
 		t.Fatalf("updating personal_info: %v", err)
 	}
 
@@ -213,7 +214,7 @@ func TestUpsertRecords_Heartrate(t *testing.T) {
 		json.RawMessage(`{"timestamp":"2024-01-15T10:05:00+00:00","bpm":68,"source":"rest"}`),
 	}
 
-	err := s.UpsertRecords("heartrate", records)
+	err := s.UpsertRecords(context.Background(),"heartrate", records)
 	if err != nil {
 		t.Fatalf("upserting heartrate: %v", err)
 	}
@@ -246,14 +247,14 @@ func TestUpsertRecords_Heartrate_Update(t *testing.T) {
 	records := []json.RawMessage{
 		json.RawMessage(`{"timestamp":"2024-01-15T10:00:00+00:00","bpm":72,"source":"awake"}`),
 	}
-	if err := s.UpsertRecords("heartrate", records); err != nil {
+	if err := s.UpsertRecords(context.Background(),"heartrate", records); err != nil {
 		t.Fatalf("initial heartrate insert: %v", err)
 	}
 
 	updated := []json.RawMessage{
 		json.RawMessage(`{"timestamp":"2024-01-15T10:00:00+00:00","bpm":75,"source":"awake"}`),
 	}
-	if err := s.UpsertRecords("heartrate", updated); err != nil {
+	if err := s.UpsertRecords(context.Background(),"heartrate", updated); err != nil {
 		t.Fatalf("heartrate upsert update: %v", err)
 	}
 
@@ -278,12 +279,12 @@ func TestUpsertRecords_EmptySlice(t *testing.T) {
 	s := newTestStore(t)
 
 	// Should be a no-op, no error.
-	err := s.UpsertRecords("daily_activity", nil)
+	err := s.UpsertRecords(context.Background(),"daily_activity", nil)
 	if err != nil {
 		t.Fatalf("upserting nil records: %v", err)
 	}
 
-	err = s.UpsertRecords("daily_activity", []json.RawMessage{})
+	err = s.UpsertRecords(context.Background(),"daily_activity", []json.RawMessage{})
 	if err != nil {
 		t.Fatalf("upserting empty records: %v", err)
 	}
@@ -296,7 +297,7 @@ func TestUpsertRecords_MissingID(t *testing.T) {
 	records := []json.RawMessage{
 		json.RawMessage(`{"day":"2024-01-15","score":85}`),
 	}
-	err := s.UpsertRecords("daily_activity", records)
+	err := s.UpsertRecords(context.Background(),"daily_activity", records)
 	if err == nil {
 		t.Fatal("expected error for record missing id, got nil")
 	}
@@ -308,7 +309,7 @@ func TestUpsertRecords_Heartrate_MissingTimestamp(t *testing.T) {
 	records := []json.RawMessage{
 		json.RawMessage(`{"bpm":72,"source":"awake"}`),
 	}
-	err := s.UpsertRecords("heartrate", records)
+	err := s.UpsertRecords(context.Background(),"heartrate", records)
 	if err == nil {
 		t.Fatal("expected error for heartrate record missing timestamp, got nil")
 	}
@@ -317,7 +318,7 @@ func TestUpsertRecords_Heartrate_MissingTimestamp(t *testing.T) {
 func TestGetLastSync_NeverSynced(t *testing.T) {
 	s := newTestStore(t)
 
-	ts, err := s.GetLastSync("daily_activity")
+	ts, err := s.GetLastSync(context.Background(),"daily_activity")
 	if err != nil {
 		t.Fatalf("getting last sync: %v", err)
 	}
@@ -330,11 +331,11 @@ func TestSetLastSync_AndGet(t *testing.T) {
 	s := newTestStore(t)
 
 	now := time.Now().UTC().Truncate(time.Second)
-	if err := s.SetLastSync("daily_activity", now); err != nil {
+	if err := s.SetLastSync(context.Background(),"daily_activity", now); err != nil {
 		t.Fatalf("setting last sync: %v", err)
 	}
 
-	got, err := s.GetLastSync("daily_activity")
+	got, err := s.GetLastSync(context.Background(),"daily_activity")
 	if err != nil {
 		t.Fatalf("getting last sync: %v", err)
 	}
@@ -349,14 +350,14 @@ func TestSetLastSync_Update(t *testing.T) {
 	t1 := time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)
 	t2 := time.Date(2024, 1, 16, 0, 0, 0, 0, time.UTC)
 
-	if err := s.SetLastSync("daily_activity", t1); err != nil {
+	if err := s.SetLastSync(context.Background(),"daily_activity", t1); err != nil {
 		t.Fatalf("setting first sync time: %v", err)
 	}
-	if err := s.SetLastSync("daily_activity", t2); err != nil {
+	if err := s.SetLastSync(context.Background(),"daily_activity", t2); err != nil {
 		t.Fatalf("setting second sync time: %v", err)
 	}
 
-	got, err := s.GetLastSync("daily_activity")
+	got, err := s.GetLastSync(context.Background(),"daily_activity")
 	if err != nil {
 		t.Fatalf("getting last sync: %v", err)
 	}
@@ -371,18 +372,18 @@ func TestSetLastSync_MultipleEndpoints(t *testing.T) {
 	t1 := time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)
 	t2 := time.Date(2024, 1, 16, 0, 0, 0, 0, time.UTC)
 
-	if err := s.SetLastSync("daily_activity", t1); err != nil {
+	if err := s.SetLastSync(context.Background(),"daily_activity", t1); err != nil {
 		t.Fatalf("setting daily_activity sync: %v", err)
 	}
-	if err := s.SetLastSync("heartrate", t2); err != nil {
+	if err := s.SetLastSync(context.Background(),"heartrate", t2); err != nil {
 		t.Fatalf("setting heartrate sync: %v", err)
 	}
 
-	got1, err := s.GetLastSync("daily_activity")
+	got1, err := s.GetLastSync(context.Background(),"daily_activity")
 	if err != nil {
 		t.Fatalf("getting daily_activity sync: %v", err)
 	}
-	got2, err := s.GetLastSync("heartrate")
+	got2, err := s.GetLastSync(context.Background(),"heartrate")
 	if err != nil {
 		t.Fatalf("getting heartrate sync: %v", err)
 	}
@@ -402,7 +403,7 @@ func TestUpsertRecords_InvalidJSON(t *testing.T) {
 	records := []json.RawMessage{
 		json.RawMessage(`not valid json`),
 	}
-	err := s.UpsertRecords("daily_activity", records)
+	err := s.UpsertRecords(context.Background(),"daily_activity", records)
 	if err == nil {
 		t.Fatal("expected error for invalid JSON, got nil")
 	}
@@ -414,7 +415,7 @@ func TestUpsertRecords_Heartrate_InvalidJSON(t *testing.T) {
 	records := []json.RawMessage{
 		json.RawMessage(`{invalid`),
 	}
-	err := s.UpsertRecords("heartrate", records)
+	err := s.UpsertRecords(context.Background(),"heartrate", records)
 	if err == nil {
 		t.Fatal("expected error for invalid heartrate JSON, got nil")
 	}
@@ -431,10 +432,10 @@ func TestUpsertRecords_MultipleEndpoints(t *testing.T) {
 		json.RawMessage(`{"id":"s1","day":"2024-01-15","score":90}`),
 	}
 
-	if err := s.UpsertRecords("daily_activity", activityRecords); err != nil {
+	if err := s.UpsertRecords(context.Background(),"daily_activity", activityRecords); err != nil {
 		t.Fatalf("upserting daily_activity: %v", err)
 	}
-	if err := s.UpsertRecords("daily_sleep", sleepRecords); err != nil {
+	if err := s.UpsertRecords(context.Background(),"daily_sleep", sleepRecords); err != nil {
 		t.Fatalf("upserting daily_sleep: %v", err)
 	}
 
@@ -460,7 +461,7 @@ func TestUpsertRecords_InvalidEndpointName(t *testing.T) {
 	records := []json.RawMessage{
 		json.RawMessage(`{"id":"1","day":"2024-01-15"}`),
 	}
-	err := s.UpsertRecords("foo; DROP TABLE sync_state--", records)
+	err := s.UpsertRecords(context.Background(),"foo; DROP TABLE sync_state--", records)
 	if err == nil {
 		t.Fatal("expected error for invalid endpoint name, got nil")
 	}
@@ -493,11 +494,11 @@ func TestUpsertLocationPeriods_Insert(t *testing.T) {
 		{City: "Tbilisi", Latitude: 41.6938, Longitude: 44.8015, Timezone: "Asia/Tbilisi", StartDate: "2026-03-13"},
 	}
 
-	if err := s.UpsertLocationPeriods(periods); err != nil {
+	if err := s.UpsertLocationPeriods(context.Background(),periods); err != nil {
 		t.Fatalf("UpsertLocationPeriods: %v", err)
 	}
 
-	got, err := s.GetLocationPeriods()
+	got, err := s.GetLocationPeriods(context.Background())
 	if err != nil {
 		t.Fatalf("GetLocationPeriods: %v", err)
 	}
@@ -525,17 +526,17 @@ func TestUpsertLocationPeriods_Update(t *testing.T) {
 	periods := []weather.LocationPeriod{
 		{City: "Da Nang", Latitude: 16.0544, Longitude: 108.2022, Timezone: "Asia/Ho_Chi_Minh", StartDate: "2025-11-01"},
 	}
-	if err := s.UpsertLocationPeriods(periods); err != nil {
+	if err := s.UpsertLocationPeriods(context.Background(),periods); err != nil {
 		t.Fatalf("initial insert: %v", err)
 	}
 
 	// Update with end_date.
 	periods[0].EndDate = "2026-03-12"
-	if err := s.UpsertLocationPeriods(periods); err != nil {
+	if err := s.UpsertLocationPeriods(context.Background(),periods); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 
-	got, err := s.GetLocationPeriods()
+	got, err := s.GetLocationPeriods(context.Background())
 	if err != nil {
 		t.Fatalf("GetLocationPeriods: %v", err)
 	}
@@ -555,17 +556,17 @@ func TestUpsertLocationPeriods_RemovesStale(t *testing.T) {
 		{City: "Da Nang", Latitude: 16.0544, Longitude: 108.2022, Timezone: "Asia/Ho_Chi_Minh", StartDate: "2025-11-01", EndDate: "2026-03-12"},
 		{City: "Tbilisi", Latitude: 41.6938, Longitude: 44.8015, Timezone: "Asia/Tbilisi", StartDate: "2026-03-13"},
 	}
-	if err := s.UpsertLocationPeriods(periods); err != nil {
+	if err := s.UpsertLocationPeriods(context.Background(),periods); err != nil {
 		t.Fatalf("initial insert: %v", err)
 	}
 
-	got, _ := s.GetLocationPeriods()
+	got, _ := s.GetLocationPeriods(context.Background())
 	if len(got) != 2 {
 		t.Fatalf("got %d periods, want 2", len(got))
 	}
 
 	// Add weather data for Tbilisi (the one we'll remove).
-	if err := s.UpsertWeatherRecords(got[1].ID, []weather.DayRecord{
+	if err := s.UpsertWeatherRecords(context.Background(),got[1].ID, []weather.DayRecord{
 		{Day: "2026-03-14", TemperatureMax: ptrF(10.0), RawJSON: json.RawMessage(`{}`)},
 	}); err != nil {
 		t.Fatalf("inserting weather: %v", err)
@@ -575,11 +576,11 @@ func TestUpsertLocationPeriods_RemovesStale(t *testing.T) {
 	periods = []weather.LocationPeriod{
 		{City: "Da Nang", Latitude: 16.0544, Longitude: 108.2022, Timezone: "Asia/Ho_Chi_Minh", StartDate: "2025-11-01", EndDate: "2026-03-12"},
 	}
-	if err := s.UpsertLocationPeriods(periods); err != nil {
+	if err := s.UpsertLocationPeriods(context.Background(),periods); err != nil {
 		t.Fatalf("upsert with removal: %v", err)
 	}
 
-	got, _ = s.GetLocationPeriods()
+	got, _ = s.GetLocationPeriods(context.Background())
 	if len(got) != 1 {
 		t.Fatalf("got %d periods after removal, want 1", len(got))
 	}
@@ -604,12 +605,12 @@ func TestGetLocationForDay(t *testing.T) {
 		{City: "Da Nang", Latitude: 16.0544, Longitude: 108.2022, Timezone: "Asia/Ho_Chi_Minh", StartDate: "2025-11-01", EndDate: "2026-03-12"},
 		{City: "Tbilisi", Latitude: 41.6938, Longitude: 44.8015, Timezone: "Asia/Tbilisi", StartDate: "2026-03-13"},
 	}
-	if err := s.UpsertLocationPeriods(periods); err != nil {
+	if err := s.UpsertLocationPeriods(context.Background(),periods); err != nil {
 		t.Fatalf("UpsertLocationPeriods: %v", err)
 	}
 
 	// Day in Da Nang period.
-	loc, err := s.GetLocationForDay("2025-12-15")
+	loc, err := s.GetLocationForDay(context.Background(),"2025-12-15")
 	if err != nil {
 		t.Fatalf("GetLocationForDay: %v", err)
 	}
@@ -618,7 +619,7 @@ func TestGetLocationForDay(t *testing.T) {
 	}
 
 	// Day in Tbilisi period.
-	loc, err = s.GetLocationForDay("2026-03-20")
+	loc, err = s.GetLocationForDay(context.Background(),"2026-03-20")
 	if err != nil {
 		t.Fatalf("GetLocationForDay: %v", err)
 	}
@@ -627,7 +628,7 @@ func TestGetLocationForDay(t *testing.T) {
 	}
 
 	// Day before any period.
-	loc, err = s.GetLocationForDay("2025-10-01")
+	loc, err = s.GetLocationForDay(context.Background(),"2025-10-01")
 	if err != nil {
 		t.Fatalf("GetLocationForDay: %v", err)
 	}
@@ -651,10 +652,10 @@ func TestUpsertWeatherRecords_InsertAndUpdate(t *testing.T) {
 	periods := []weather.LocationPeriod{
 		{City: "Da Nang", Latitude: 16.0544, Longitude: 108.2022, Timezone: "Asia/Ho_Chi_Minh", StartDate: "2025-11-01"},
 	}
-	if err := s.UpsertLocationPeriods(periods); err != nil {
+	if err := s.UpsertLocationPeriods(context.Background(),periods); err != nil {
 		t.Fatalf("UpsertLocationPeriods: %v", err)
 	}
-	locs, _ := s.GetLocationPeriods()
+	locs, _ := s.GetLocationPeriods(context.Background())
 	locID := locs[0].ID
 
 	records := []weather.DayRecord{
@@ -662,7 +663,7 @@ func TestUpsertWeatherRecords_InsertAndUpdate(t *testing.T) {
 		{Day: "2025-11-02", TemperatureMax: ptrF(31.0), TemperatureMean: ptrF(27.0), RawJSON: json.RawMessage(`{"temperature_2m_max":31.0}`)},
 	}
 
-	if err := s.UpsertWeatherRecords(locID, records); err != nil {
+	if err := s.UpsertWeatherRecords(context.Background(),locID, records); err != nil {
 		t.Fatalf("UpsertWeatherRecords: %v", err)
 	}
 
@@ -690,7 +691,7 @@ func TestUpsertWeatherRecords_InsertAndUpdate(t *testing.T) {
 	updated := []weather.DayRecord{
 		{Day: "2025-11-01", TemperatureMax: ptrF(33.0), HumidityMean: ptrF(85.0), RawJSON: json.RawMessage(`{"temperature_2m_max":33.0}`)},
 	}
-	if err := s.UpsertWeatherRecords(locID, updated); err != nil {
+	if err := s.UpsertWeatherRecords(context.Background(),locID, updated); err != nil {
 		t.Fatalf("UpsertWeatherRecords update: %v", err)
 	}
 
@@ -717,14 +718,14 @@ func TestGetLastWeatherDay(t *testing.T) {
 	periods := []weather.LocationPeriod{
 		{City: "Da Nang", Latitude: 16.0544, Longitude: 108.2022, Timezone: "Asia/Ho_Chi_Minh", StartDate: "2025-11-01"},
 	}
-	if err := s.UpsertLocationPeriods(periods); err != nil {
+	if err := s.UpsertLocationPeriods(context.Background(),periods); err != nil {
 		t.Fatalf("UpsertLocationPeriods: %v", err)
 	}
-	locs, _ := s.GetLocationPeriods()
+	locs, _ := s.GetLocationPeriods(context.Background())
 	locID := locs[0].ID
 
 	// No data yet.
-	day, err := s.GetLastWeatherDay(locID)
+	day, err := s.GetLastWeatherDay(context.Background(),locID)
 	if err != nil {
 		t.Fatalf("GetLastWeatherDay: %v", err)
 	}
@@ -738,11 +739,11 @@ func TestGetLastWeatherDay(t *testing.T) {
 		{Day: "2025-11-03", TemperatureMax: ptrF(30.0), RawJSON: json.RawMessage(`{}`)},
 		{Day: "2025-11-02", TemperatureMax: ptrF(31.0), RawJSON: json.RawMessage(`{}`)},
 	}
-	if err := s.UpsertWeatherRecords(locID, records); err != nil {
+	if err := s.UpsertWeatherRecords(context.Background(),locID, records); err != nil {
 		t.Fatalf("UpsertWeatherRecords: %v", err)
 	}
 
-	day, err = s.GetLastWeatherDay(locID)
+	day, err = s.GetLastWeatherDay(context.Background(),locID)
 	if err != nil {
 		t.Fatalf("GetLastWeatherDay: %v", err)
 	}
@@ -754,12 +755,12 @@ func TestGetLastWeatherDay(t *testing.T) {
 func TestUpsertWeatherRecords_EmptySlice(t *testing.T) {
 	s := newTestStore(t)
 
-	err := s.UpsertWeatherRecords(1, nil)
+	err := s.UpsertWeatherRecords(context.Background(),1, nil)
 	if err != nil {
 		t.Fatalf("upserting nil records: %v", err)
 	}
 
-	err = s.UpsertWeatherRecords(1, []weather.DayRecord{})
+	err = s.UpsertWeatherRecords(context.Background(),1, []weather.DayRecord{})
 	if err != nil {
 		t.Fatalf("upserting empty records: %v", err)
 	}

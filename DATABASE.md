@@ -10,7 +10,7 @@ Two storage backends are supported: **SQLite** (default) and **ClickHouse**.
 - **JSON storage**: every data table has a `data` column (JSON) with the full API response for that record. Extracted columns (`id`, `day`, `bpm`, etc.) are denormalized for convenient querying.
 - **Dates**: `day` columns use `YYYY-MM-DD` format (local calendar date). `timestamp` uses ISO 8601 with timezone.
 - **Upsert**: records are inserted or replaced by primary key on each sync, so the database always holds the latest version.
-- **`synced_at`**: timestamp of when the row was last written (UTC, `CURRENT_TIMESTAMP` in SQLite, `now()` in ClickHouse).
+- **`synced_at`**: timestamp of when the row was last written (UTC, `CURRENT_TIMESTAMP` in SQLite, `now64(3)` in ClickHouse).
 
 ## Backend Differences
 
@@ -43,7 +43,7 @@ Tracks the last successful sync time per endpoint. Used to do incremental fetche
 |-------------|----------|--------------------------------------|
 | `endpoint`  | String   | Endpoint name (ORDER BY key)         |
 | `last_sync` | String   | ISO 8601 / RFC 3339 timestamp        |
-| `updated_at`| DateTime | Version column for dedup (`DEFAULT now()`) |
+| `updated_at`| DateTime64(3) | Version column for dedup (`DEFAULT now64(3)`) |
 
 ---
 
@@ -65,7 +65,7 @@ Singleton row (always `id = 1`). User profile: age, weight, height, email, biolo
 |-------------|----------|----------------------------|
 | `id`        | Int64    | Always 1 (ORDER BY key)   |
 | `data`      | String   | Full API response (JSON)   |
-| `synced_at` | DateTime | Version column (`DEFAULT now()`) |
+| `synced_at` | DateTime64(3) | Version column (`DEFAULT now64(3)`) |
 
 `data` example fields: `age`, `weight`, `height`, `biological_sex`, `email`.
 
@@ -93,7 +93,7 @@ Heart rate samples, typically every 5 minutes. High volume (hundreds of rows per
 | `bpm`       | Nullable(Int64)  | Beats per minute                         |
 | `source`    | Nullable(String) | Measurement source                       |
 | `data`      | String           | Full API record (JSON)                   |
-| `synced_at` | DateTime         | Version column (`DEFAULT now()`)         |
+| `synced_at` | DateTime64(3)    | Version column (`DEFAULT now64(3)`)      |
 
 ---
 
@@ -117,7 +117,7 @@ All remaining endpoints share the same schema.
 | `id`        | String           | Oura-assigned UUID (ORDER BY key)       |
 | `day`       | Nullable(String) | Calendar date `YYYY-MM-DD`              |
 | `data`      | String           | Full API record (JSON)                   |
-| `synced_at` | DateTime         | Version column (`DEFAULT now()`)         |
+| `synced_at` | DateTime64(3)    | Version column (`DEFAULT now64(3)`)      |
 
 These tables are:
 
@@ -170,7 +170,7 @@ Tracks where the user was for weather data correlation. Populated from config fi
 | `timezone`  | String           | IANA timezone                                        |
 | `start_date`| String           | Start date `YYYY-MM-DD` (ORDER BY key part 2)       |
 | `end_date`  | Nullable(String) | End date `YYYY-MM-DD` (NULL = ongoing)               |
-| `synced_at` | DateTime         | Version column (`DEFAULT now()`)                     |
+| `synced_at` | DateTime64(3)    | Version column (`DEFAULT now64(3)`)                  |
 
 ---
 
@@ -222,7 +222,7 @@ One row per day per location. Weather data from [Open-Meteo](https://open-meteo.
 | `uv_index_max`            | Nullable(Float64) | Max UV index                             |
 | `weather_code`            | Nullable(Int64)   | WMO weather code                         |
 | `data`                    | String            | Full API response (JSON)                 |
-| `synced_at`               | DateTime          | Version column (`DEFAULT now()`)         |
+| `synced_at`               | DateTime64(3)     | Version column (`DEFAULT now64(3)`)      |
 
 ## Querying
 

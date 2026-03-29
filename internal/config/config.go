@@ -25,6 +25,7 @@ type ClickHouse struct {
 	Database string `yaml:"database"`
 	User     string `yaml:"user"`
 	Password string `yaml:"password"`
+	Secure   bool   `yaml:"secure"`
 }
 
 // Config holds all application settings.

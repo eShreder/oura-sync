@@ -33,3 +33,4 @@
 #   database: "oura"
 #   user: "default"
 #   password: ""
+#   secure: false    # enable TLS for remote/cloud ClickHouse

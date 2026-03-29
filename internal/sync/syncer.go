@@ -67,7 +67,7 @@ func (s *Syncer) SyncEndpoint(ctx context.Context, ep api.Endpoint, startDate, e
 		}
 
 		if len(records) > 0 {
-			if err := s.store.UpsertRecords(ep.Name, records); err != nil {
+			if err := s.store.UpsertRecords(ctx, ep.Name, records); err != nil {
 				return totalCount, fmt.Errorf("storing %s: %w", ep.Name, err)
 			}
 			totalCount += len(records)
@@ -133,7 +133,7 @@ func (s *Syncer) syncSingleton(ctx context.Context, ep api.Endpoint) (int, error
 	}
 
 	records := []json.RawMessage{json.RawMessage(body)}
-	if err := s.store.UpsertRecords(ep.Name, records); err != nil {
+	if err := s.store.UpsertRecords(ctx, ep.Name, records); err != nil {
 		return 0, fmt.Errorf("storing %s: %w", ep.Name, err)
 	}
 
@@ -157,7 +157,7 @@ func (s *Syncer) SyncAll(ctx context.Context, defaultDays int) (map[string]int, 
 		var startDate string
 
 		if !ep.IsSingleton {
-			lastSync, err := s.store.GetLastSync(ep.Name)
+			lastSync, err := s.store.GetLastSync(ctx, ep.Name)
 			if err != nil {
 				return results, fmt.Errorf("getting last sync for %s: %w", ep.Name, err)
 			}
@@ -181,7 +181,7 @@ func (s *Syncer) SyncAll(ctx context.Context, defaultDays int) (map[string]int, 
 
 		results[ep.Name] = count
 
-		if err := s.store.SetLastSync(ep.Name, now); err != nil {
+		if err := s.store.SetLastSync(ctx, ep.Name, now); err != nil {
 			return results, fmt.Errorf("updating sync state for %s: %w", ep.Name, err)
 		}
 	}

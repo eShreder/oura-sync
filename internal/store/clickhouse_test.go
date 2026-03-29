@@ -81,7 +81,7 @@ func TestShared_ClickHouse(t *testing.T) {
 	cfg := startClickHouseContainer(t)
 
 	// Create one store to run migrations, then reuse the connection.
-	baseStore, err := NewClickHouseStore(cfg)
+	baseStore, err := NewClickHouseStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewClickHouseStore: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestClickHouseStore_ConnectAndMigrate(t *testing.T) {
 
 	cfg := startClickHouseContainer(t)
 
-	s, err := NewClickHouseStore(cfg)
+	s, err := NewClickHouseStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewClickHouseStore: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestClickHouseStore_TableEngines(t *testing.T) {
 
 	cfg := startClickHouseContainer(t)
 
-	s, err := NewClickHouseStore(cfg)
+	s, err := NewClickHouseStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewClickHouseStore: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestClickHouseStore_Close(t *testing.T) {
 
 	cfg := startClickHouseContainer(t)
 
-	s, err := NewClickHouseStore(cfg)
+	s, err := NewClickHouseStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewClickHouseStore: %v", err)
 	}
@@ -198,13 +198,13 @@ func TestClickHouseStore_MigrateIdempotent(t *testing.T) {
 	cfg := startClickHouseContainer(t)
 
 	// Create store twice — migrations should be idempotent (CREATE TABLE IF NOT EXISTS).
-	s1, err := NewClickHouseStore(cfg)
+	s1, err := NewClickHouseStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("first NewClickHouseStore: %v", err)
 	}
 	s1.Close()
 
-	s2, err := NewClickHouseStore(cfg)
+	s2, err := NewClickHouseStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("second NewClickHouseStore: %v", err)
 	}
@@ -217,13 +217,13 @@ func TestClickHouseStore_GetLastSync_Empty(t *testing.T) {
 	}
 
 	cfg := startClickHouseContainer(t)
-	s, err := NewClickHouseStore(cfg)
+	s, err := NewClickHouseStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewClickHouseStore: %v", err)
 	}
 	defer s.Close()
 
-	got, err := s.GetLastSync("daily_activity")
+	got, err := s.GetLastSync(context.Background(),"daily_activity")
 	if err != nil {
 		t.Fatalf("GetLastSync: %v", err)
 	}
@@ -238,18 +238,18 @@ func TestClickHouseStore_SetAndGetLastSync(t *testing.T) {
 	}
 
 	cfg := startClickHouseContainer(t)
-	s, err := NewClickHouseStore(cfg)
+	s, err := NewClickHouseStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewClickHouseStore: %v", err)
 	}
 	defer s.Close()
 
 	ts := time.Date(2025, 6, 15, 10, 30, 0, 0, time.UTC)
-	if err := s.SetLastSync("daily_activity", ts); err != nil {
+	if err := s.SetLastSync(context.Background(),"daily_activity", ts); err != nil {
 		t.Fatalf("SetLastSync: %v", err)
 	}
 
-	got, err := s.GetLastSync("daily_activity")
+	got, err := s.GetLastSync(context.Background(),"daily_activity")
 	if err != nil {
 		t.Fatalf("GetLastSync: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestClickHouseStore_SetAndGetLastSync(t *testing.T) {
 
 	// Update with a newer time
 	ts2 := time.Date(2025, 6, 16, 12, 0, 0, 0, time.UTC)
-	if err := s.SetLastSync("daily_activity", ts2); err != nil {
+	if err := s.SetLastSync(context.Background(),"daily_activity", ts2); err != nil {
 		t.Fatalf("SetLastSync (update): %v", err)
 	}
 
@@ -267,7 +267,7 @@ func TestClickHouseStore_SetAndGetLastSync(t *testing.T) {
 	ctx := context.Background()
 	_ = s.conn.Exec(ctx, "OPTIMIZE TABLE sync_state FINAL")
 
-	got2, err := s.GetLastSync("daily_activity")
+	got2, err := s.GetLastSync(context.Background(),"daily_activity")
 	if err != nil {
 		t.Fatalf("GetLastSync after update: %v", err)
 	}
@@ -282,7 +282,7 @@ func TestClickHouseStore_SetLastSync_MultipleEndpoints(t *testing.T) {
 	}
 
 	cfg := startClickHouseContainer(t)
-	s, err := NewClickHouseStore(cfg)
+	s, err := NewClickHouseStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewClickHouseStore: %v", err)
 	}
@@ -291,14 +291,14 @@ func TestClickHouseStore_SetLastSync_MultipleEndpoints(t *testing.T) {
 	ts1 := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	ts2 := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
 
-	if err := s.SetLastSync("daily_activity", ts1); err != nil {
+	if err := s.SetLastSync(context.Background(),"daily_activity", ts1); err != nil {
 		t.Fatalf("SetLastSync daily_activity: %v", err)
 	}
-	if err := s.SetLastSync("heartrate", ts2); err != nil {
+	if err := s.SetLastSync(context.Background(),"heartrate", ts2); err != nil {
 		t.Fatalf("SetLastSync heartrate: %v", err)
 	}
 
-	got1, err := s.GetLastSync("daily_activity")
+	got1, err := s.GetLastSync(context.Background(),"daily_activity")
 	if err != nil {
 		t.Fatalf("GetLastSync daily_activity: %v", err)
 	}
@@ -306,7 +306,7 @@ func TestClickHouseStore_SetLastSync_MultipleEndpoints(t *testing.T) {
 		t.Errorf("daily_activity = %v, want %v", got1, ts1)
 	}
 
-	got2, err := s.GetLastSync("heartrate")
+	got2, err := s.GetLastSync(context.Background(),"heartrate")
 	if err != nil {
 		t.Fatalf("GetLastSync heartrate: %v", err)
 	}
@@ -321,7 +321,7 @@ func TestClickHouseStore_UpsertRecords_PersonalInfo(t *testing.T) {
 	}
 
 	cfg := startClickHouseContainer(t)
-	s, err := NewClickHouseStore(cfg)
+	s, err := NewClickHouseStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewClickHouseStore: %v", err)
 	}
@@ -330,7 +330,7 @@ func TestClickHouseStore_UpsertRecords_PersonalInfo(t *testing.T) {
 	records := []json.RawMessage{
 		json.RawMessage(`{"email":"test@example.com","age":30}`),
 	}
-	if err := s.UpsertRecords("personal_info", records); err != nil {
+	if err := s.UpsertRecords(context.Background(),"personal_info", records); err != nil {
 		t.Fatalf("UpsertRecords personal_info: %v", err)
 	}
 
@@ -349,7 +349,7 @@ func TestClickHouseStore_UpsertRecords_PersonalInfo(t *testing.T) {
 	records2 := []json.RawMessage{
 		json.RawMessage(`{"email":"new@example.com","age":31}`),
 	}
-	if err := s.UpsertRecords("personal_info", records2); err != nil {
+	if err := s.UpsertRecords(context.Background(),"personal_info", records2); err != nil {
 		t.Fatalf("UpsertRecords personal_info update: %v", err)
 	}
 
@@ -370,7 +370,7 @@ func TestClickHouseStore_UpsertRecords_Heartrate(t *testing.T) {
 	}
 
 	cfg := startClickHouseContainer(t)
-	s, err := NewClickHouseStore(cfg)
+	s, err := NewClickHouseStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewClickHouseStore: %v", err)
 	}
@@ -380,7 +380,7 @@ func TestClickHouseStore_UpsertRecords_Heartrate(t *testing.T) {
 		json.RawMessage(`{"timestamp":"2025-06-15T10:00:00+00:00","bpm":72,"source":"awake"}`),
 		json.RawMessage(`{"timestamp":"2025-06-15T10:01:00+00:00","bpm":75,"source":"awake"}`),
 	}
-	if err := s.UpsertRecords("heartrate", records); err != nil {
+	if err := s.UpsertRecords(context.Background(),"heartrate", records); err != nil {
 		t.Fatalf("UpsertRecords heartrate: %v", err)
 	}
 
@@ -415,7 +415,7 @@ func TestClickHouseStore_UpsertRecords_Heartrate(t *testing.T) {
 	records2 := []json.RawMessage{
 		json.RawMessage(`{"timestamp":"2025-06-15T10:00:00+00:00","bpm":80,"source":"rest"}`),
 	}
-	if err := s.UpsertRecords("heartrate", records2); err != nil {
+	if err := s.UpsertRecords(context.Background(),"heartrate", records2); err != nil {
 		t.Fatalf("UpsertRecords heartrate update: %v", err)
 	}
 
@@ -439,7 +439,7 @@ func TestClickHouseStore_UpsertRecords_Heartrate_MissingTimestamp(t *testing.T) 
 	}
 
 	cfg := startClickHouseContainer(t)
-	s, err := NewClickHouseStore(cfg)
+	s, err := NewClickHouseStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewClickHouseStore: %v", err)
 	}
@@ -448,7 +448,7 @@ func TestClickHouseStore_UpsertRecords_Heartrate_MissingTimestamp(t *testing.T) 
 	records := []json.RawMessage{
 		json.RawMessage(`{"bpm":72}`),
 	}
-	err = s.UpsertRecords("heartrate", records)
+	err = s.UpsertRecords(context.Background(),"heartrate", records)
 	if err == nil {
 		t.Fatal("expected error for missing timestamp, got nil")
 	}
@@ -460,7 +460,7 @@ func TestClickHouseStore_UpsertRecords_StandardEndpoint(t *testing.T) {
 	}
 
 	cfg := startClickHouseContainer(t)
-	s, err := NewClickHouseStore(cfg)
+	s, err := NewClickHouseStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewClickHouseStore: %v", err)
 	}
@@ -470,7 +470,7 @@ func TestClickHouseStore_UpsertRecords_StandardEndpoint(t *testing.T) {
 		json.RawMessage(`{"id":"abc-123","day":"2025-06-15","score":85}`),
 		json.RawMessage(`{"id":"def-456","day":"2025-06-16","score":90}`),
 	}
-	if err := s.UpsertRecords("daily_activity", records); err != nil {
+	if err := s.UpsertRecords(context.Background(),"daily_activity", records); err != nil {
 		t.Fatalf("UpsertRecords daily_activity: %v", err)
 	}
 
@@ -502,7 +502,7 @@ func TestClickHouseStore_UpsertRecords_StandardEndpoint(t *testing.T) {
 	records2 := []json.RawMessage{
 		json.RawMessage(`{"id":"abc-123","day":"2025-06-15","score":99}`),
 	}
-	if err := s.UpsertRecords("daily_activity", records2); err != nil {
+	if err := s.UpsertRecords(context.Background(),"daily_activity", records2); err != nil {
 		t.Fatalf("UpsertRecords daily_activity update: %v", err)
 	}
 
@@ -526,7 +526,7 @@ func TestClickHouseStore_UpsertRecords_StandardEndpoint_MissingID(t *testing.T) 
 	}
 
 	cfg := startClickHouseContainer(t)
-	s, err := NewClickHouseStore(cfg)
+	s, err := NewClickHouseStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewClickHouseStore: %v", err)
 	}
@@ -535,7 +535,7 @@ func TestClickHouseStore_UpsertRecords_StandardEndpoint_MissingID(t *testing.T) 
 	records := []json.RawMessage{
 		json.RawMessage(`{"day":"2025-06-15"}`),
 	}
-	err = s.UpsertRecords("daily_activity", records)
+	err = s.UpsertRecords(context.Background(),"daily_activity", records)
 	if err == nil {
 		t.Fatal("expected error for missing id, got nil")
 	}
@@ -547,18 +547,18 @@ func TestClickHouseStore_UpsertRecords_EmptyRecords(t *testing.T) {
 	}
 
 	cfg := startClickHouseContainer(t)
-	s, err := NewClickHouseStore(cfg)
+	s, err := NewClickHouseStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewClickHouseStore: %v", err)
 	}
 	defer s.Close()
 
-	err = s.UpsertRecords("daily_activity", nil)
+	err = s.UpsertRecords(context.Background(),"daily_activity", nil)
 	if err != nil {
 		t.Fatalf("UpsertRecords with nil records: %v", err)
 	}
 
-	err = s.UpsertRecords("daily_activity", []json.RawMessage{})
+	err = s.UpsertRecords(context.Background(),"daily_activity", []json.RawMessage{})
 	if err != nil {
 		t.Fatalf("UpsertRecords with empty records: %v", err)
 	}
@@ -570,14 +570,14 @@ func TestClickHouseStore_UpsertRecords_InvalidEndpointName(t *testing.T) {
 	}
 
 	cfg := startClickHouseContainer(t)
-	s, err := NewClickHouseStore(cfg)
+	s, err := NewClickHouseStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewClickHouseStore: %v", err)
 	}
 	defer s.Close()
 
 	records := []json.RawMessage{json.RawMessage(`{"id":"1"}`)}
-	err = s.UpsertRecords("bad-name!", records)
+	err = s.UpsertRecords(context.Background(),"bad-name!", records)
 	if err == nil {
 		t.Fatal("expected error for invalid endpoint name, got nil")
 	}
@@ -589,7 +589,7 @@ func TestClickHouseStore_UpsertLocationPeriods_InsertAndGet(t *testing.T) {
 	}
 
 	cfg := startClickHouseContainer(t)
-	s, err := NewClickHouseStore(cfg)
+	s, err := NewClickHouseStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewClickHouseStore: %v", err)
 	}
@@ -599,11 +599,11 @@ func TestClickHouseStore_UpsertLocationPeriods_InsertAndGet(t *testing.T) {
 		{City: "Berlin", Latitude: 52.52, Longitude: 13.405, Timezone: "Europe/Berlin", StartDate: "2025-01-01", EndDate: "2025-06-01"},
 		{City: "Tokyo", Latitude: 35.6762, Longitude: 139.6503, Timezone: "Asia/Tokyo", StartDate: "2025-06-02"},
 	}
-	if err := s.UpsertLocationPeriods(periods); err != nil {
+	if err := s.UpsertLocationPeriods(context.Background(),periods); err != nil {
 		t.Fatalf("UpsertLocationPeriods: %v", err)
 	}
 
-	got, err := s.GetLocationPeriods()
+	got, err := s.GetLocationPeriods(context.Background())
 	if err != nil {
 		t.Fatalf("GetLocationPeriods: %v", err)
 	}
@@ -638,7 +638,7 @@ func TestClickHouseStore_UpsertLocationPeriods_Update(t *testing.T) {
 	}
 
 	cfg := startClickHouseContainer(t)
-	s, err := NewClickHouseStore(cfg)
+	s, err := NewClickHouseStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewClickHouseStore: %v", err)
 	}
@@ -647,20 +647,20 @@ func TestClickHouseStore_UpsertLocationPeriods_Update(t *testing.T) {
 	periods := []weather.LocationPeriod{
 		{City: "Berlin", Latitude: 52.52, Longitude: 13.405, Timezone: "Europe/Berlin", StartDate: "2025-01-01"},
 	}
-	if err := s.UpsertLocationPeriods(periods); err != nil {
+	if err := s.UpsertLocationPeriods(context.Background(),periods); err != nil {
 		t.Fatalf("UpsertLocationPeriods: %v", err)
 	}
 
 	// Update with new end date.
 	periods[0].EndDate = "2025-06-01"
-	if err := s.UpsertLocationPeriods(periods); err != nil {
+	if err := s.UpsertLocationPeriods(context.Background(),periods); err != nil {
 		t.Fatalf("UpsertLocationPeriods update: %v", err)
 	}
 
 	ctx := context.Background()
 	_ = s.conn.Exec(ctx, "OPTIMIZE TABLE location_period FINAL")
 
-	got, err := s.GetLocationPeriods()
+	got, err := s.GetLocationPeriods(context.Background())
 	if err != nil {
 		t.Fatalf("GetLocationPeriods: %v", err)
 	}
@@ -678,7 +678,7 @@ func TestClickHouseStore_UpsertLocationPeriods_Cleanup(t *testing.T) {
 	}
 
 	cfg := startClickHouseContainer(t)
-	s, err := NewClickHouseStore(cfg)
+	s, err := NewClickHouseStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewClickHouseStore: %v", err)
 	}
@@ -689,17 +689,17 @@ func TestClickHouseStore_UpsertLocationPeriods_Cleanup(t *testing.T) {
 		{City: "Berlin", Latitude: 52.52, Longitude: 13.405, Timezone: "Europe/Berlin", StartDate: "2025-01-01"},
 		{City: "Tokyo", Latitude: 35.6762, Longitude: 139.6503, Timezone: "Asia/Tokyo", StartDate: "2025-06-01"},
 	}
-	if err := s.UpsertLocationPeriods(periods); err != nil {
+	if err := s.UpsertLocationPeriods(context.Background(),periods); err != nil {
 		t.Fatalf("UpsertLocationPeriods: %v", err)
 	}
 
 	// Upsert with only Berlin — Tokyo should be removed.
 	periods = periods[:1]
-	if err := s.UpsertLocationPeriods(periods); err != nil {
+	if err := s.UpsertLocationPeriods(context.Background(),periods); err != nil {
 		t.Fatalf("UpsertLocationPeriods cleanup: %v", err)
 	}
 
-	got, err := s.GetLocationPeriods()
+	got, err := s.GetLocationPeriods(context.Background())
 	if err != nil {
 		t.Fatalf("GetLocationPeriods: %v", err)
 	}
@@ -717,7 +717,7 @@ func TestClickHouseStore_UpsertLocationPeriods_Empty(t *testing.T) {
 	}
 
 	cfg := startClickHouseContainer(t)
-	s, err := NewClickHouseStore(cfg)
+	s, err := NewClickHouseStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewClickHouseStore: %v", err)
 	}
@@ -727,16 +727,16 @@ func TestClickHouseStore_UpsertLocationPeriods_Empty(t *testing.T) {
 	periods := []weather.LocationPeriod{
 		{City: "Berlin", Latitude: 52.52, Longitude: 13.405, Timezone: "Europe/Berlin", StartDate: "2025-01-01"},
 	}
-	if err := s.UpsertLocationPeriods(periods); err != nil {
+	if err := s.UpsertLocationPeriods(context.Background(),periods); err != nil {
 		t.Fatalf("UpsertLocationPeriods: %v", err)
 	}
 
 	// Upsert empty — should clear all.
-	if err := s.UpsertLocationPeriods(nil); err != nil {
+	if err := s.UpsertLocationPeriods(context.Background(),nil); err != nil {
 		t.Fatalf("UpsertLocationPeriods empty: %v", err)
 	}
 
-	got, err := s.GetLocationPeriods()
+	got, err := s.GetLocationPeriods(context.Background())
 	if err != nil {
 		t.Fatalf("GetLocationPeriods: %v", err)
 	}
@@ -751,7 +751,7 @@ func TestClickHouseStore_GetLocationForDay(t *testing.T) {
 	}
 
 	cfg := startClickHouseContainer(t)
-	s, err := NewClickHouseStore(cfg)
+	s, err := NewClickHouseStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewClickHouseStore: %v", err)
 	}
@@ -761,12 +761,12 @@ func TestClickHouseStore_GetLocationForDay(t *testing.T) {
 		{City: "Berlin", Latitude: 52.52, Longitude: 13.405, Timezone: "Europe/Berlin", StartDate: "2025-01-01", EndDate: "2025-06-01"},
 		{City: "Tokyo", Latitude: 35.6762, Longitude: 139.6503, Timezone: "Asia/Tokyo", StartDate: "2025-06-02"},
 	}
-	if err := s.UpsertLocationPeriods(periods); err != nil {
+	if err := s.UpsertLocationPeriods(context.Background(),periods); err != nil {
 		t.Fatalf("UpsertLocationPeriods: %v", err)
 	}
 
 	// Day within Berlin period.
-	got, err := s.GetLocationForDay("2025-03-15")
+	got, err := s.GetLocationForDay(context.Background(),"2025-03-15")
 	if err != nil {
 		t.Fatalf("GetLocationForDay: %v", err)
 	}
@@ -778,7 +778,7 @@ func TestClickHouseStore_GetLocationForDay(t *testing.T) {
 	}
 
 	// Day within Tokyo period (open-ended).
-	got, err = s.GetLocationForDay("2025-07-01")
+	got, err = s.GetLocationForDay(context.Background(),"2025-07-01")
 	if err != nil {
 		t.Fatalf("GetLocationForDay: %v", err)
 	}
@@ -790,7 +790,7 @@ func TestClickHouseStore_GetLocationForDay(t *testing.T) {
 	}
 
 	// Day before any period.
-	got, err = s.GetLocationForDay("2024-01-01")
+	got, err = s.GetLocationForDay(context.Background(),"2024-01-01")
 	if err != nil {
 		t.Fatalf("GetLocationForDay: %v", err)
 	}
@@ -805,7 +805,7 @@ func TestClickHouseStore_UpsertWeatherRecords(t *testing.T) {
 	}
 
 	cfg := startClickHouseContainer(t)
-	s, err := NewClickHouseStore(cfg)
+	s, err := NewClickHouseStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewClickHouseStore: %v", err)
 	}
@@ -815,7 +815,7 @@ func TestClickHouseStore_UpsertWeatherRecords(t *testing.T) {
 	periods := []weather.LocationPeriod{
 		{City: "Berlin", Latitude: 52.52, Longitude: 13.405, Timezone: "Europe/Berlin", StartDate: "2025-01-01"},
 	}
-	if err := s.UpsertLocationPeriods(periods); err != nil {
+	if err := s.UpsertLocationPeriods(context.Background(),periods); err != nil {
 		t.Fatalf("UpsertLocationPeriods: %v", err)
 	}
 	locationID := locationPeriodID("Berlin", "2025-01-01")
@@ -827,7 +827,7 @@ func TestClickHouseStore_UpsertWeatherRecords(t *testing.T) {
 		{Day: "2025-06-15", TemperatureMax: &tempMax, TemperatureMin: &tempMin, WeatherCode: &code, RawJSON: json.RawMessage(`{"day":"2025-06-15"}`)},
 		{Day: "2025-06-16", TemperatureMax: &tempMax, RawJSON: json.RawMessage(`{"day":"2025-06-16"}`)},
 	}
-	if err := s.UpsertWeatherRecords(locationID, records); err != nil {
+	if err := s.UpsertWeatherRecords(context.Background(),locationID, records); err != nil {
 		t.Fatalf("UpsertWeatherRecords: %v", err)
 	}
 
@@ -866,13 +866,13 @@ func TestClickHouseStore_UpsertWeatherRecords_Empty(t *testing.T) {
 	}
 
 	cfg := startClickHouseContainer(t)
-	s, err := NewClickHouseStore(cfg)
+	s, err := NewClickHouseStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewClickHouseStore: %v", err)
 	}
 	defer s.Close()
 
-	err = s.UpsertWeatherRecords(1, nil)
+	err = s.UpsertWeatherRecords(context.Background(),1, nil)
 	if err != nil {
 		t.Fatalf("UpsertWeatherRecords empty: %v", err)
 	}
@@ -884,7 +884,7 @@ func TestClickHouseStore_GetLastWeatherDay(t *testing.T) {
 	}
 
 	cfg := startClickHouseContainer(t)
-	s, err := NewClickHouseStore(cfg)
+	s, err := NewClickHouseStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewClickHouseStore: %v", err)
 	}
@@ -893,7 +893,7 @@ func TestClickHouseStore_GetLastWeatherDay(t *testing.T) {
 	locationID := int64(42)
 
 	// No data — should return empty.
-	day, err := s.GetLastWeatherDay(locationID)
+	day, err := s.GetLastWeatherDay(context.Background(),locationID)
 	if err != nil {
 		t.Fatalf("GetLastWeatherDay empty: %v", err)
 	}
@@ -908,11 +908,11 @@ func TestClickHouseStore_GetLastWeatherDay(t *testing.T) {
 		{Day: "2025-06-15", TemperatureMax: &tempMax, RawJSON: json.RawMessage(`{}`)},
 		{Day: "2025-06-12", TemperatureMax: &tempMax, RawJSON: json.RawMessage(`{}`)},
 	}
-	if err := s.UpsertWeatherRecords(locationID, records); err != nil {
+	if err := s.UpsertWeatherRecords(context.Background(),locationID, records); err != nil {
 		t.Fatalf("UpsertWeatherRecords: %v", err)
 	}
 
-	day, err = s.GetLastWeatherDay(locationID)
+	day, err = s.GetLastWeatherDay(context.Background(),locationID)
 	if err != nil {
 		t.Fatalf("GetLastWeatherDay: %v", err)
 	}
@@ -927,7 +927,7 @@ func TestClickHouseStore_WeatherInvalidation_CoordinateChange(t *testing.T) {
 	}
 
 	cfg := startClickHouseContainer(t)
-	s, err := NewClickHouseStore(cfg)
+	s, err := NewClickHouseStore(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewClickHouseStore: %v", err)
 	}
@@ -936,7 +936,7 @@ func TestClickHouseStore_WeatherInvalidation_CoordinateChange(t *testing.T) {
 	periods := []weather.LocationPeriod{
 		{City: "Berlin", Latitude: 52.52, Longitude: 13.405, Timezone: "Europe/Berlin", StartDate: "2025-01-01"},
 	}
-	if err := s.UpsertLocationPeriods(periods); err != nil {
+	if err := s.UpsertLocationPeriods(context.Background(),periods); err != nil {
 		t.Fatalf("UpsertLocationPeriods: %v", err)
 	}
 	locationID := locationPeriodID("Berlin", "2025-01-01")
@@ -946,17 +946,17 @@ func TestClickHouseStore_WeatherInvalidation_CoordinateChange(t *testing.T) {
 	records := []weather.DayRecord{
 		{Day: "2025-06-15", TemperatureMax: &tempMax, RawJSON: json.RawMessage(`{}`)},
 	}
-	if err := s.UpsertWeatherRecords(locationID, records); err != nil {
+	if err := s.UpsertWeatherRecords(context.Background(),locationID, records); err != nil {
 		t.Fatalf("UpsertWeatherRecords: %v", err)
 	}
 
 	// Change coordinates — weather should be invalidated.
 	periods[0].Latitude = 53.0
-	if err := s.UpsertLocationPeriods(periods); err != nil {
+	if err := s.UpsertLocationPeriods(context.Background(),periods); err != nil {
 		t.Fatalf("UpsertLocationPeriods with new coords: %v", err)
 	}
 
-	day, err := s.GetLastWeatherDay(locationID)
+	day, err := s.GetLastWeatherDay(context.Background(),locationID)
 	if err != nil {
 		t.Fatalf("GetLastWeatherDay: %v", err)
 	}

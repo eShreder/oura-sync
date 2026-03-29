@@ -60,10 +60,27 @@ func run() int {
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
+	// Set up context with timeout and signal handling before opening the store,
+	// so that startup (connection, migration) is also bounded by --timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+	defer cancel()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+	go func() {
+		select {
+		case sig := <-sigCh:
+			logger.Info("received signal, shutting down", "signal", sig)
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
 	// Open store — ClickHouse if configured, otherwise SQLite (default).
 	var st store.Store
 	if cfg.ClickHouse != nil {
-		st, err = store.NewClickHouseStore(cfg.ClickHouse)
+		st, err = store.NewClickHouseStore(ctx, cfg.ClickHouse)
 		if err != nil {
 			logger.Error("failed to open clickhouse", "host", cfg.ClickHouse.Host, "error", err)
 			return 1
@@ -84,22 +101,6 @@ func run() int {
 
 	// Create syncer.
 	syncer := sync.NewSyncer(client, st, logger)
-
-	// Set up context with timeout and signal handling.
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
-	defer cancel()
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(sigCh)
-	go func() {
-		select {
-		case sig := <-sigCh:
-			logger.Info("received signal, shutting down", "signal", sig)
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
 
 	// Run sync.
 	logger.Info("starting sync", "days", cfg.Days)
@@ -127,7 +128,7 @@ func run() int {
 func runWeatherSync(ctx context.Context, cfg config.Config, st store.Store, logger *slog.Logger) int {
 	if len(cfg.Locations) == 0 {
 		// Clean up any previously-synced location data.
-		if err := st.UpsertLocationPeriods(nil); err != nil {
+		if err := st.UpsertLocationPeriods(ctx, nil); err != nil {
 			logger.Warn("failed to clean location periods", "error", err)
 		}
 		return 0
@@ -163,7 +164,7 @@ func runWeatherSync(ctx context.Context, cfg config.Config, st store.Store, logg
 		}
 	}
 
-	if err := st.UpsertLocationPeriods(periods); err != nil {
+	if err := st.UpsertLocationPeriods(ctx, periods); err != nil {
 		logger.Warn("failed to sync location periods", "error", err)
 		return 0
 	}

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -15,10 +16,11 @@ func ptrI(i int) *int         { return &i }
 // The factory function should return a fresh, empty store for each subtest.
 func runSharedStoreTests(t *testing.T, factory func(t *testing.T) Store) {
 	t.Helper()
+	ctx := context.Background()
 
 	t.Run("GetLastSync_NeverSynced", func(t *testing.T) {
 		s := factory(t)
-		ts, err := s.GetLastSync("daily_activity")
+		ts, err := s.GetLastSync(ctx, "daily_activity")
 		if err != nil {
 			t.Fatalf("GetLastSync: %v", err)
 		}
@@ -30,10 +32,10 @@ func runSharedStoreTests(t *testing.T, factory func(t *testing.T) Store) {
 	t.Run("SetLastSync_AndGet", func(t *testing.T) {
 		s := factory(t)
 		now := time.Date(2025, 6, 15, 10, 30, 0, 0, time.UTC)
-		if err := s.SetLastSync("daily_activity", now); err != nil {
+		if err := s.SetLastSync(ctx,"daily_activity", now); err != nil {
 			t.Fatalf("SetLastSync: %v", err)
 		}
-		got, err := s.GetLastSync("daily_activity")
+		got, err := s.GetLastSync(ctx,"daily_activity")
 		if err != nil {
 			t.Fatalf("GetLastSync: %v", err)
 		}
@@ -47,13 +49,13 @@ func runSharedStoreTests(t *testing.T, factory func(t *testing.T) Store) {
 		t1 := time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)
 		t2 := time.Date(2024, 1, 16, 0, 0, 0, 0, time.UTC)
 
-		if err := s.SetLastSync("daily_activity", t1); err != nil {
+		if err := s.SetLastSync(ctx,"daily_activity", t1); err != nil {
 			t.Fatalf("SetLastSync t1: %v", err)
 		}
-		if err := s.SetLastSync("daily_activity", t2); err != nil {
+		if err := s.SetLastSync(ctx,"daily_activity", t2); err != nil {
 			t.Fatalf("SetLastSync t2: %v", err)
 		}
-		got, err := s.GetLastSync("daily_activity")
+		got, err := s.GetLastSync(ctx,"daily_activity")
 		if err != nil {
 			t.Fatalf("GetLastSync: %v", err)
 		}
@@ -67,18 +69,18 @@ func runSharedStoreTests(t *testing.T, factory func(t *testing.T) Store) {
 		t1 := time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)
 		t2 := time.Date(2024, 1, 16, 0, 0, 0, 0, time.UTC)
 
-		if err := s.SetLastSync("daily_activity", t1); err != nil {
+		if err := s.SetLastSync(ctx,"daily_activity", t1); err != nil {
 			t.Fatalf("SetLastSync daily_activity: %v", err)
 		}
-		if err := s.SetLastSync("heartrate", t2); err != nil {
+		if err := s.SetLastSync(ctx,"heartrate", t2); err != nil {
 			t.Fatalf("SetLastSync heartrate: %v", err)
 		}
 
-		got1, err := s.GetLastSync("daily_activity")
+		got1, err := s.GetLastSync(ctx,"daily_activity")
 		if err != nil {
 			t.Fatalf("GetLastSync daily_activity: %v", err)
 		}
-		got2, err := s.GetLastSync("heartrate")
+		got2, err := s.GetLastSync(ctx,"heartrate")
 		if err != nil {
 			t.Fatalf("GetLastSync heartrate: %v", err)
 		}
@@ -93,10 +95,10 @@ func runSharedStoreTests(t *testing.T, factory func(t *testing.T) Store) {
 
 	t.Run("UpsertRecords_EmptySlice", func(t *testing.T) {
 		s := factory(t)
-		if err := s.UpsertRecords("daily_activity", nil); err != nil {
+		if err := s.UpsertRecords(ctx,"daily_activity", nil); err != nil {
 			t.Fatalf("nil records: %v", err)
 		}
-		if err := s.UpsertRecords("daily_activity", []json.RawMessage{}); err != nil {
+		if err := s.UpsertRecords(ctx,"daily_activity", []json.RawMessage{}); err != nil {
 			t.Fatalf("empty records: %v", err)
 		}
 	})
@@ -106,7 +108,7 @@ func runSharedStoreTests(t *testing.T, factory func(t *testing.T) Store) {
 		records := []json.RawMessage{
 			json.RawMessage(`{"day":"2024-01-15","score":85}`),
 		}
-		err := s.UpsertRecords("daily_activity", records)
+		err := s.UpsertRecords(ctx,"daily_activity", records)
 		if err == nil {
 			t.Fatal("expected error for record missing id, got nil")
 		}
@@ -117,7 +119,7 @@ func runSharedStoreTests(t *testing.T, factory func(t *testing.T) Store) {
 		records := []json.RawMessage{
 			json.RawMessage(`{"bpm":72,"source":"awake"}`),
 		}
-		err := s.UpsertRecords("heartrate", records)
+		err := s.UpsertRecords(ctx,"heartrate", records)
 		if err == nil {
 			t.Fatal("expected error for heartrate record missing timestamp, got nil")
 		}
@@ -128,7 +130,7 @@ func runSharedStoreTests(t *testing.T, factory func(t *testing.T) Store) {
 		records := []json.RawMessage{
 			json.RawMessage(`not valid json`),
 		}
-		err := s.UpsertRecords("daily_activity", records)
+		err := s.UpsertRecords(ctx,"daily_activity", records)
 		if err == nil {
 			t.Fatal("expected error for invalid JSON, got nil")
 		}
@@ -139,7 +141,7 @@ func runSharedStoreTests(t *testing.T, factory func(t *testing.T) Store) {
 		records := []json.RawMessage{
 			json.RawMessage(`{invalid`),
 		}
-		err := s.UpsertRecords("heartrate", records)
+		err := s.UpsertRecords(ctx,"heartrate", records)
 		if err == nil {
 			t.Fatal("expected error for invalid heartrate JSON, got nil")
 		}
@@ -150,7 +152,7 @@ func runSharedStoreTests(t *testing.T, factory func(t *testing.T) Store) {
 		records := []json.RawMessage{
 			json.RawMessage(`{"id":"1","day":"2024-01-15"}`),
 		}
-		err := s.UpsertRecords("foo; DROP TABLE sync_state--", records)
+		err := s.UpsertRecords(ctx,"foo; DROP TABLE sync_state--", records)
 		if err == nil {
 			t.Fatal("expected error for invalid endpoint name, got nil")
 		}
@@ -162,7 +164,7 @@ func runSharedStoreTests(t *testing.T, factory func(t *testing.T) Store) {
 			json.RawMessage(`{"id":"abc123","day":"2024-01-15","score":85}`),
 			json.RawMessage(`{"id":"def456","day":"2024-01-16","score":72}`),
 		}
-		if err := s.UpsertRecords("daily_activity", records); err != nil {
+		if err := s.UpsertRecords(ctx,"daily_activity", records); err != nil {
 			t.Fatalf("UpsertRecords: %v", err)
 		}
 	})
@@ -172,13 +174,13 @@ func runSharedStoreTests(t *testing.T, factory func(t *testing.T) Store) {
 		records := []json.RawMessage{
 			json.RawMessage(`{"id":"abc123","day":"2024-01-15","score":85}`),
 		}
-		if err := s.UpsertRecords("daily_activity", records); err != nil {
+		if err := s.UpsertRecords(ctx,"daily_activity", records); err != nil {
 			t.Fatalf("initial insert: %v", err)
 		}
 		updated := []json.RawMessage{
 			json.RawMessage(`{"id":"abc123","day":"2024-01-15","score":90}`),
 		}
-		if err := s.UpsertRecords("daily_activity", updated); err != nil {
+		if err := s.UpsertRecords(ctx,"daily_activity", updated); err != nil {
 			t.Fatalf("upsert update: %v", err)
 		}
 	})
@@ -188,14 +190,14 @@ func runSharedStoreTests(t *testing.T, factory func(t *testing.T) Store) {
 		records := []json.RawMessage{
 			json.RawMessage(`{"age":35,"weight":75.5,"height":180}`),
 		}
-		if err := s.UpsertRecords("personal_info", records); err != nil {
+		if err := s.UpsertRecords(ctx,"personal_info", records); err != nil {
 			t.Fatalf("UpsertRecords personal_info: %v", err)
 		}
 		// Update should also work.
 		updated := []json.RawMessage{
 			json.RawMessage(`{"age":36,"weight":76.0,"height":180}`),
 		}
-		if err := s.UpsertRecords("personal_info", updated); err != nil {
+		if err := s.UpsertRecords(ctx,"personal_info", updated); err != nil {
 			t.Fatalf("UpsertRecords personal_info update: %v", err)
 		}
 	})
@@ -206,7 +208,7 @@ func runSharedStoreTests(t *testing.T, factory func(t *testing.T) Store) {
 			json.RawMessage(`{"timestamp":"2024-01-15T10:00:00+00:00","bpm":72,"source":"awake"}`),
 			json.RawMessage(`{"timestamp":"2024-01-15T10:05:00+00:00","bpm":68,"source":"rest"}`),
 		}
-		if err := s.UpsertRecords("heartrate", records); err != nil {
+		if err := s.UpsertRecords(ctx,"heartrate", records); err != nil {
 			t.Fatalf("UpsertRecords heartrate: %v", err)
 		}
 	})
@@ -217,11 +219,11 @@ func runSharedStoreTests(t *testing.T, factory func(t *testing.T) Store) {
 			{City: "Da Nang", Latitude: 16.0544, Longitude: 108.2022, Timezone: "Asia/Ho_Chi_Minh", StartDate: "2025-11-01", EndDate: "2026-03-12"},
 			{City: "Tbilisi", Latitude: 41.6938, Longitude: 44.8015, Timezone: "Asia/Tbilisi", StartDate: "2026-03-13"},
 		}
-		if err := s.UpsertLocationPeriods(periods); err != nil {
+		if err := s.UpsertLocationPeriods(ctx,periods); err != nil {
 			t.Fatalf("UpsertLocationPeriods: %v", err)
 		}
 
-		got, err := s.GetLocationPeriods()
+		got, err := s.GetLocationPeriods(ctx)
 		if err != nil {
 			t.Fatalf("GetLocationPeriods: %v", err)
 		}
@@ -247,14 +249,14 @@ func runSharedStoreTests(t *testing.T, factory func(t *testing.T) Store) {
 		periods := []weather.LocationPeriod{
 			{City: "Da Nang", Latitude: 16.0544, Longitude: 108.2022, Timezone: "Asia/Ho_Chi_Minh", StartDate: "2025-11-01"},
 		}
-		if err := s.UpsertLocationPeriods(periods); err != nil {
+		if err := s.UpsertLocationPeriods(ctx,periods); err != nil {
 			t.Fatalf("initial insert: %v", err)
 		}
 		periods[0].EndDate = "2026-03-12"
-		if err := s.UpsertLocationPeriods(periods); err != nil {
+		if err := s.UpsertLocationPeriods(ctx,periods); err != nil {
 			t.Fatalf("update: %v", err)
 		}
-		got, err := s.GetLocationPeriods()
+		got, err := s.GetLocationPeriods(ctx)
 		if err != nil {
 			t.Fatalf("GetLocationPeriods: %v", err)
 		}
@@ -272,10 +274,10 @@ func runSharedStoreTests(t *testing.T, factory func(t *testing.T) Store) {
 			{City: "Da Nang", Latitude: 16.0544, Longitude: 108.2022, Timezone: "Asia/Ho_Chi_Minh", StartDate: "2025-11-01", EndDate: "2026-03-12"},
 			{City: "Tbilisi", Latitude: 41.6938, Longitude: 44.8015, Timezone: "Asia/Tbilisi", StartDate: "2026-03-13"},
 		}
-		if err := s.UpsertLocationPeriods(periods); err != nil {
+		if err := s.UpsertLocationPeriods(ctx,periods); err != nil {
 			t.Fatalf("initial insert: %v", err)
 		}
-		got, err := s.GetLocationPeriods()
+		got, err := s.GetLocationPeriods(ctx)
 		if err != nil {
 			t.Fatalf("GetLocationPeriods: %v", err)
 		}
@@ -284,7 +286,7 @@ func runSharedStoreTests(t *testing.T, factory func(t *testing.T) Store) {
 		}
 
 		// Add weather data for Tbilisi.
-		if err := s.UpsertWeatherRecords(got[1].ID, []weather.DayRecord{
+		if err := s.UpsertWeatherRecords(ctx,got[1].ID, []weather.DayRecord{
 			{Day: "2026-03-14", TemperatureMax: ptrF(10.0), RawJSON: json.RawMessage(`{}`)},
 		}); err != nil {
 			t.Fatalf("inserting weather: %v", err)
@@ -294,10 +296,10 @@ func runSharedStoreTests(t *testing.T, factory func(t *testing.T) Store) {
 		periods = []weather.LocationPeriod{
 			{City: "Da Nang", Latitude: 16.0544, Longitude: 108.2022, Timezone: "Asia/Ho_Chi_Minh", StartDate: "2025-11-01", EndDate: "2026-03-12"},
 		}
-		if err := s.UpsertLocationPeriods(periods); err != nil {
+		if err := s.UpsertLocationPeriods(ctx,periods); err != nil {
 			t.Fatalf("upsert with removal: %v", err)
 		}
-		got, err = s.GetLocationPeriods()
+		got, err = s.GetLocationPeriods(ctx)
 		if err != nil {
 			t.Fatalf("GetLocationPeriods after removal: %v", err)
 		}
@@ -315,12 +317,12 @@ func runSharedStoreTests(t *testing.T, factory func(t *testing.T) Store) {
 			{City: "Da Nang", Latitude: 16.0544, Longitude: 108.2022, Timezone: "Asia/Ho_Chi_Minh", StartDate: "2025-11-01", EndDate: "2026-03-12"},
 			{City: "Tbilisi", Latitude: 41.6938, Longitude: 44.8015, Timezone: "Asia/Tbilisi", StartDate: "2026-03-13"},
 		}
-		if err := s.UpsertLocationPeriods(periods); err != nil {
+		if err := s.UpsertLocationPeriods(ctx,periods); err != nil {
 			t.Fatalf("UpsertLocationPeriods: %v", err)
 		}
 
 		// Day in Da Nang period.
-		loc, err := s.GetLocationForDay("2025-12-15")
+		loc, err := s.GetLocationForDay(ctx,"2025-12-15")
 		if err != nil {
 			t.Fatalf("GetLocationForDay: %v", err)
 		}
@@ -329,7 +331,7 @@ func runSharedStoreTests(t *testing.T, factory func(t *testing.T) Store) {
 		}
 
 		// Day in Tbilisi period.
-		loc, err = s.GetLocationForDay("2026-03-20")
+		loc, err = s.GetLocationForDay(ctx,"2026-03-20")
 		if err != nil {
 			t.Fatalf("GetLocationForDay: %v", err)
 		}
@@ -338,7 +340,7 @@ func runSharedStoreTests(t *testing.T, factory func(t *testing.T) Store) {
 		}
 
 		// Day before any period.
-		loc, err = s.GetLocationForDay("2025-10-01")
+		loc, err = s.GetLocationForDay(ctx,"2025-10-01")
 		if err != nil {
 			t.Fatalf("GetLocationForDay: %v", err)
 		}
@@ -352,17 +354,17 @@ func runSharedStoreTests(t *testing.T, factory func(t *testing.T) Store) {
 		periods := []weather.LocationPeriod{
 			{City: "Da Nang", Latitude: 16.0544, Longitude: 108.2022, Timezone: "Asia/Ho_Chi_Minh", StartDate: "2025-11-01"},
 		}
-		if err := s.UpsertLocationPeriods(periods); err != nil {
+		if err := s.UpsertLocationPeriods(ctx,periods); err != nil {
 			t.Fatalf("UpsertLocationPeriods: %v", err)
 		}
-		locs, err := s.GetLocationPeriods()
+		locs, err := s.GetLocationPeriods(ctx)
 		if err != nil {
 			t.Fatalf("GetLocationPeriods: %v", err)
 		}
 		locID := locs[0].ID
 
 		// No data yet.
-		day, err := s.GetLastWeatherDay(locID)
+		day, err := s.GetLastWeatherDay(ctx,locID)
 		if err != nil {
 			t.Fatalf("GetLastWeatherDay: %v", err)
 		}
@@ -376,11 +378,11 @@ func runSharedStoreTests(t *testing.T, factory func(t *testing.T) Store) {
 			{Day: "2025-11-03", TemperatureMax: ptrF(30.0), RawJSON: json.RawMessage(`{}`)},
 			{Day: "2025-11-02", TemperatureMax: ptrF(31.0), RawJSON: json.RawMessage(`{}`)},
 		}
-		if err := s.UpsertWeatherRecords(locID, records); err != nil {
+		if err := s.UpsertWeatherRecords(ctx,locID, records); err != nil {
 			t.Fatalf("UpsertWeatherRecords: %v", err)
 		}
 
-		day, err = s.GetLastWeatherDay(locID)
+		day, err = s.GetLastWeatherDay(ctx,locID)
 		if err != nil {
 			t.Fatalf("GetLastWeatherDay: %v", err)
 		}
@@ -391,10 +393,10 @@ func runSharedStoreTests(t *testing.T, factory func(t *testing.T) Store) {
 
 	t.Run("UpsertWeatherRecords_EmptySlice", func(t *testing.T) {
 		s := factory(t)
-		if err := s.UpsertWeatherRecords(1, nil); err != nil {
+		if err := s.UpsertWeatherRecords(ctx,1, nil); err != nil {
 			t.Fatalf("nil records: %v", err)
 		}
-		if err := s.UpsertWeatherRecords(1, []weather.DayRecord{}); err != nil {
+		if err := s.UpsertWeatherRecords(ctx,1, []weather.DayRecord{}); err != nil {
 			t.Fatalf("empty records: %v", err)
 		}
 	})

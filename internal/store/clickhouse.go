@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -24,20 +25,26 @@ type ClickHouseStore struct {
 var _ Store = (*ClickHouseStore)(nil)
 
 // NewClickHouseStore creates a new ClickHouseStore connected to the given ClickHouse instance.
-func NewClickHouseStore(cfg *config.ClickHouse) (*ClickHouseStore, error) {
-	conn, err := clickhouse.Open(&clickhouse.Options{
+// The provided context bounds the connection ping and schema migration.
+func NewClickHouseStore(ctx context.Context, cfg *config.ClickHouse) (*ClickHouseStore, error) {
+	opts := &clickhouse.Options{
 		Addr: []string{fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)},
 		Auth: clickhouse.Auth{
 			Database: cfg.Database,
 			Username: cfg.User,
 			Password: cfg.Password,
 		},
-	})
+		DialTimeout: 10 * time.Second,
+		ReadTimeout: 30 * time.Second,
+	}
+	if cfg.Secure {
+		opts.TLS = &tls.Config{}
+	}
+	conn, err := clickhouse.Open(opts)
 	if err != nil {
 		return nil, fmt.Errorf("opening clickhouse connection: %w", err)
 	}
 
-	ctx := context.Background()
 	if err := conn.Ping(ctx); err != nil {
 		return nil, fmt.Errorf("pinging clickhouse: %w", err)
 	}
@@ -63,7 +70,7 @@ func (s *ClickHouseStore) migrate(ctx context.Context) error {
 		CREATE TABLE IF NOT EXISTS sync_state (
 			endpoint String,
 			last_sync String,
-			updated_at DateTime DEFAULT now()
+			updated_at DateTime64(3) DEFAULT now64(3)
 		) ENGINE = ReplacingMergeTree(updated_at)
 		ORDER BY (endpoint)
 	`); err != nil {
@@ -78,7 +85,7 @@ func (s *ClickHouseStore) migrate(ctx context.Context) error {
 			ddl = `CREATE TABLE IF NOT EXISTS personal_info (
 				id Int64,
 				data String,
-				synced_at DateTime DEFAULT now()
+				synced_at DateTime64(3) DEFAULT now64(3)
 			) ENGINE = ReplacingMergeTree(synced_at)
 			ORDER BY (id)`
 		case ep.Name == "heartrate":
@@ -87,7 +94,7 @@ func (s *ClickHouseStore) migrate(ctx context.Context) error {
 				bpm Nullable(Int64),
 				source Nullable(String),
 				data String,
-				synced_at DateTime DEFAULT now()
+				synced_at DateTime64(3) DEFAULT now64(3)
 			) ENGINE = ReplacingMergeTree(synced_at)
 			ORDER BY (timestamp)`
 		default:
@@ -95,7 +102,7 @@ func (s *ClickHouseStore) migrate(ctx context.Context) error {
 				id String,
 				day Nullable(String),
 				data String,
-				synced_at DateTime DEFAULT now()
+				synced_at DateTime64(3) DEFAULT now64(3)
 			) ENGINE = ReplacingMergeTree(synced_at)
 			ORDER BY (id)`, ep.Name)
 		}
@@ -115,7 +122,7 @@ func (s *ClickHouseStore) migrate(ctx context.Context) error {
 			timezone String,
 			start_date String,
 			end_date Nullable(String),
-			synced_at DateTime DEFAULT now()
+			synced_at DateTime64(3) DEFAULT now64(3)
 		) ENGINE = ReplacingMergeTree(synced_at)
 		ORDER BY (city, start_date)
 	`); err != nil {
@@ -142,11 +149,35 @@ func (s *ClickHouseStore) migrate(ctx context.Context) error {
 			uv_index_max Nullable(Float64),
 			weather_code Nullable(Int64),
 			data String,
-			synced_at DateTime DEFAULT now()
+			synced_at DateTime64(3) DEFAULT now64(3)
 		) ENGINE = ReplacingMergeTree(synced_at)
 		ORDER BY (day, location_id)
 	`); err != nil {
 		return fmt.Errorf("creating daily_weather table: %w", err)
+	}
+
+	// Upgrade pre-existing tables from DateTime to DateTime64(3).
+	// CREATE TABLE IF NOT EXISTS won't alter columns, so this handles
+	// databases created before the DateTime64(3) change.
+	alterColumns := []struct{ table, column string }{
+		{"sync_state", "updated_at"},
+		{"personal_info", "synced_at"},
+		{"heartrate", "synced_at"},
+		{"location_period", "synced_at"},
+		{"daily_weather", "synced_at"},
+	}
+	for _, ep := range api.Endpoints {
+		if ep.Name != "personal_info" && ep.Name != "heartrate" {
+			alterColumns = append(alterColumns, struct{ table, column string }{ep.Name, "synced_at"})
+		}
+	}
+	for _, ac := range alterColumns {
+		if err := s.conn.Exec(ctx, fmt.Sprintf(
+			"ALTER TABLE %s MODIFY COLUMN IF EXISTS %s DateTime64(3) DEFAULT now64(3)",
+			ac.table, ac.column,
+		)); err != nil {
+			return fmt.Errorf("upgrading %s.%s to DateTime64: %w", ac.table, ac.column, err)
+		}
 	}
 
 	return nil
@@ -154,8 +185,7 @@ func (s *ClickHouseStore) migrate(ctx context.Context) error {
 
 // GetLastSync returns the last sync time for the given endpoint.
 // Uses SELECT ... FINAL to get the latest version from ReplacingMergeTree.
-func (s *ClickHouseStore) GetLastSync(endpoint string) (time.Time, error) {
-	ctx := context.Background()
+func (s *ClickHouseStore) GetLastSync(ctx context.Context, endpoint string) (time.Time, error) {
 	var lastSync string
 	err := s.conn.QueryRow(ctx,
 		"SELECT last_sync FROM sync_state FINAL WHERE endpoint = ?",
@@ -178,8 +208,7 @@ func (s *ClickHouseStore) GetLastSync(endpoint string) (time.Time, error) {
 
 // SetLastSync updates the last sync time for the given endpoint.
 // Uses plain INSERT; ReplacingMergeTree deduplicates by ORDER BY (endpoint).
-func (s *ClickHouseStore) SetLastSync(endpoint string, t time.Time) error {
-	ctx := context.Background()
+func (s *ClickHouseStore) SetLastSync(ctx context.Context, endpoint string, t time.Time) error {
 	err := s.conn.Exec(ctx,
 		"INSERT INTO sync_state (endpoint, last_sync) VALUES (?, ?)",
 		endpoint, t.Format(time.RFC3339),
@@ -193,7 +222,7 @@ func (s *ClickHouseStore) SetLastSync(endpoint string, t time.Time) error {
 // UpsertRecords inserts or updates records for the given endpoint.
 // Extraction logic matches SQLite: personal_info is singleton, heartrate uses timestamp,
 // standard endpoints use id+day.
-func (s *ClickHouseStore) UpsertRecords(endpointName string, records []json.RawMessage) error {
+func (s *ClickHouseStore) UpsertRecords(ctx context.Context, endpointName string, records []json.RawMessage) error {
 	if len(records) == 0 {
 		return nil
 	}
@@ -202,7 +231,6 @@ func (s *ClickHouseStore) UpsertRecords(endpointName string, records []json.RawM
 		return fmt.Errorf("invalid endpoint name: %q", endpointName)
 	}
 
-	ctx := context.Background()
 	for _, raw := range records {
 		if err := s.upsertOne(ctx, endpointName, raw); err != nil {
 			return err
@@ -278,8 +306,7 @@ func locationPeriodID(city, startDate string) int64 {
 }
 
 // UpsertLocationPeriods inserts or updates location periods and removes stale ones.
-func (s *ClickHouseStore) UpsertLocationPeriods(periods []weather.LocationPeriod) error {
-	ctx := context.Background()
+func (s *ClickHouseStore) UpsertLocationPeriods(ctx context.Context, periods []weather.LocationPeriod) error {
 
 	if len(periods) == 0 {
 		// All locations removed: clean up everything.
@@ -371,8 +398,7 @@ func (s *ClickHouseStore) UpsertLocationPeriods(periods []weather.LocationPeriod
 }
 
 // GetLocationPeriods returns all location periods ordered by start_date.
-func (s *ClickHouseStore) GetLocationPeriods() ([]weather.LocationPeriod, error) {
-	ctx := context.Background()
+func (s *ClickHouseStore) GetLocationPeriods(ctx context.Context) ([]weather.LocationPeriod, error) {
 	rows, err := s.conn.Query(ctx,
 		"SELECT id, city, latitude, longitude, timezone, start_date, end_date FROM location_period FINAL ORDER BY start_date",
 	)
@@ -397,8 +423,7 @@ func (s *ClickHouseStore) GetLocationPeriods() ([]weather.LocationPeriod, error)
 }
 
 // GetLocationForDay returns the location period that covers the given day.
-func (s *ClickHouseStore) GetLocationForDay(day string) (*weather.LocationPeriod, error) {
-	ctx := context.Background()
+func (s *ClickHouseStore) GetLocationForDay(ctx context.Context, day string) (*weather.LocationPeriod, error) {
 	var p weather.LocationPeriod
 	var endDate *string
 	err := s.conn.QueryRow(ctx,
@@ -423,12 +448,11 @@ func (s *ClickHouseStore) GetLocationForDay(day string) (*weather.LocationPeriod
 
 // UpsertWeatherRecords inserts daily weather records for a location.
 // ReplacingMergeTree deduplicates by ORDER BY (day, location_id).
-func (s *ClickHouseStore) UpsertWeatherRecords(locationID int64, records []weather.DayRecord) error {
+func (s *ClickHouseStore) UpsertWeatherRecords(ctx context.Context, locationID int64, records []weather.DayRecord) error {
 	if len(records) == 0 {
 		return nil
 	}
 
-	ctx := context.Background()
 	for _, r := range records {
 		var weatherCode *int64
 		if r.WeatherCode != nil {
@@ -455,8 +479,7 @@ func (s *ClickHouseStore) UpsertWeatherRecords(locationID int64, records []weath
 
 // GetLastWeatherDay returns the most recent day with weather data for a location.
 // Returns empty string if no data exists.
-func (s *ClickHouseStore) GetLastWeatherDay(locationID int64) (string, error) {
-	ctx := context.Background()
+func (s *ClickHouseStore) GetLastWeatherDay(ctx context.Context, locationID int64) (string, error) {
 	var day string
 	err := s.conn.QueryRow(ctx,
 		"SELECT day FROM daily_weather FINAL WHERE location_id = ? ORDER BY day DESC LIMIT 1",
