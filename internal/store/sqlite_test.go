@@ -589,7 +589,9 @@ func TestUpsertLocationPeriods_RemovesStale(t *testing.T) {
 
 	// Verify weather data for removed location was also deleted.
 	var count int
-	s.db.QueryRow("SELECT COUNT(*) FROM daily_weather").Scan(&count)
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM daily_weather").Scan(&count); err != nil {
+		t.Fatalf("querying weather count: %v", err)
+	}
 	if count != 0 {
 		t.Errorf("expected 0 weather records after location removal, got %d", count)
 	}

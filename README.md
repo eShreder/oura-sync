@@ -31,6 +31,7 @@ go build -o oura-sync ./cmd/oura-sync/
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `--config` | `oura-sync.yaml` | Path to YAML config file |
 | `--db` | `oura.db` | Path to SQLite database file |
 | `--days` | `90` | Number of days to sync on first run |
 | `--timeout` | `10m` | Overall sync timeout |
@@ -52,6 +53,8 @@ clickhouse:
 ```
 
 When the `clickhouse` section is present, SQLite is not used. The `--db` flag is ignored.
+
+The ClickHouse database must exist before the first run (e.g., `CREATE DATABASE oura`). Tables are created automatically. Requires ClickHouse 23.3+ (for lightweight DELETE support).
 
 ClickHouse uses ReplacingMergeTree engines for all tables, providing deduplication on merge. Reads use `SELECT ... FINAL` to get the latest version of each row. See [DATABASE.md](DATABASE.md) for schema details.
 

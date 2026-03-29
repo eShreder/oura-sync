@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"hash/fnv"
 	"strings"
@@ -23,8 +22,6 @@ type ClickHouseStore struct {
 }
 
 var _ Store = (*ClickHouseStore)(nil)
-
-var errNotImplemented = errors.New("clickhouse store not yet implemented")
 
 // NewClickHouseStore creates a new ClickHouseStore connected to the given ClickHouse instance.
 func NewClickHouseStore(cfg *config.ClickHouse) (*ClickHouseStore, error) {
